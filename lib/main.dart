@@ -1,15 +1,42 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.1';
+const appVersion = 'v0.1.3';
 
-void main() => runApp(const FinancialApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    await windowManager.ensureInitialized();
+    final preferences = await SharedPreferences.getInstance();
+    final width = preferences.getDouble('window-width') ?? 1280;
+    final height = preferences.getDouble('window-height') ?? 800;
+    final savedX = preferences.getDouble('window-x');
+    final savedY = preferences.getDouble('window-y');
+    final options = WindowOptions(
+      size: Size(width, height),
+      minimumSize: const Size(900, 600),
+      center: savedX == null || savedY == null,
+      title: 'Financial App $appVersion',
+    );
+    windowManager.waitUntilReadyToShow(options, () async {
+      if (savedX != null && savedY != null) {
+        await windowManager.setPosition(Offset(savedX, savedY));
+      }
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
+  runApp(const FinancialApp());
+}
 
 class FinancialApp extends StatelessWidget {
   const FinancialApp({super.key});
@@ -159,6 +186,30 @@ Color accountTypeColor(AccountType type) => switch (type) {
   AccountType.inactive => const Color(0xFF718096),
 };
 
+String uppercaseWithoutGreekTones(String value) {
+  const replacements = {
+    'Ά': 'Α',
+    'Έ': 'Ε',
+    'Ή': 'Η',
+    'Ί': 'Ι',
+    'Ό': 'Ο',
+    'Ύ': 'Υ',
+    'Ώ': 'Ω',
+    'ά': 'α',
+    'έ': 'ε',
+    'ή': 'η',
+    'ί': 'ι',
+    'ό': 'ο',
+    'ύ': 'υ',
+    'ώ': 'ω',
+  };
+  var result = value;
+  for (final entry in replacements.entries) {
+    result = result.replaceAll(entry.key, entry.value);
+  }
+  return result.toUpperCase();
+}
+
 class FinanceHomePage extends StatefulWidget {
   const FinanceHomePage({super.key});
 
@@ -166,7 +217,7 @@ class FinanceHomePage extends StatefulWidget {
   State<FinanceHomePage> createState() => _FinanceHomePageState();
 }
 
-class _FinanceHomePageState extends State<FinanceHomePage> {
+class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   final _currency = NumberFormat.currency(locale: 'el_GR', symbol: '€');
   final _dateFormat = DateFormat('dd/MM/yyyy');
   final _searchController = TextEditingController();
@@ -177,13 +228,65 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   bool _loading = false;
   String? _error;
   final Set<AccountType> _collapsedGroups = {};
+  double _sidebarWidth = 300;
+  Timer? _windowSaveTimer;
 
   @override
   void initState() {
     super.initState();
     _loadSeedRegister();
     _loadCollapsedGroups();
+    _loadSidebarWidth();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      windowManager.addListener(this);
+    }
   }
+
+  Future<void> _loadSidebarWidth() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final width = preferences.getDouble('sidebar-width');
+      if (!mounted || width == null) return;
+      setState(() => _sidebarWidth = width.clamp(220, 420));
+    } catch (_) {}
+  }
+
+  Future<void> _setSidebarWidth(double width) async {
+    final clamped = width.clamp(220, 420).toDouble();
+    setState(() => _sidebarWidth = clamped);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setDouble('sidebar-width', clamped);
+  }
+
+  void _scheduleWindowSave() {
+    _windowSaveTimer?.cancel();
+    _windowSaveTimer = Timer(
+      const Duration(milliseconds: 400),
+      _saveWindowGeometry,
+    );
+  }
+
+  Future<void> _saveWindowGeometry() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
+    try {
+      final size = await windowManager.getSize();
+      final position = await windowManager.getPosition();
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setDouble('window-width', size.width);
+      await preferences.setDouble('window-height', size.height);
+      await preferences.setDouble('window-x', position.dx);
+      await preferences.setDouble('window-y', position.dy);
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowResized() => _scheduleWindowSave();
+
+  @override
+  void onWindowMoved() => _scheduleWindowSave();
+
+  @override
+  void onWindowClose() => _saveWindowGeometry();
 
   Future<void> _loadCollapsedGroups() async {
     try {
@@ -219,6 +322,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   @override
   void dispose() {
+    _windowSaveTimer?.cancel();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      windowManager.removeListener(this);
+    }
     _searchController.dispose();
     super.dispose();
   }
@@ -456,11 +563,34 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       drawer: wide
           ? null
           : Drawer(
-              child: _Navigation(selected: _section, onSelect: _selectSection),
+              child: _Navigation(
+                selected: _section,
+                selectedAccount: _selectedAccount,
+                balances: _groupedBalances,
+                collapsedGroups: _collapsedGroups,
+                sidebarWidth: _sidebarWidth,
+                onSelect: _selectSection,
+                onAccountSelect: _selectAccount,
+                onToggleGroup: (type, collapsed) =>
+                    _setGroupCollapsed(type, collapsed),
+                onWidthChanged: _setSidebarWidth,
+              ),
             ),
       body: Row(
         children: [
-          if (wide) _Navigation(selected: _section, onSelect: _selectSection),
+          if (wide)
+            _Navigation(
+              selected: _section,
+              selectedAccount: _selectedAccount,
+              balances: _groupedBalances,
+              collapsedGroups: _collapsedGroups,
+              sidebarWidth: _sidebarWidth,
+              onSelect: _selectSection,
+              onAccountSelect: _selectAccount,
+              onToggleGroup: (type, collapsed) =>
+                  _setGroupCollapsed(type, collapsed),
+              onWidthChanged: _setSidebarWidth,
+            ),
           Expanded(child: _buildContent(wide)),
         ],
       ),
@@ -493,6 +623,16 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   void _selectSection(int index) {
     Navigator.maybePop(context);
     setState(() => _section = index);
+  }
+
+  void _selectAccount(String account) {
+    Navigator.maybePop(context);
+    setState(() {
+      _section = 1;
+      _selectedAccount = account;
+      _selectedCategory = null;
+      _searchController.clear();
+    });
   }
 
   Widget _buildContent(bool wide) {
@@ -704,70 +844,256 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 }
 
 class _Navigation extends StatelessWidget {
-  const _Navigation({required this.selected, required this.onSelect});
+  const _Navigation({
+    required this.selected,
+    required this.selectedAccount,
+    required this.balances,
+    required this.collapsedGroups,
+    required this.sidebarWidth,
+    required this.onSelect,
+    required this.onAccountSelect,
+    required this.onToggleGroup,
+    required this.onWidthChanged,
+  });
   final int selected;
+  final String? selectedAccount;
+  final Map<AccountType, List<MapEntry<String, double>>> balances;
+  final Set<AccountType> collapsedGroups;
+  final double sidebarWidth;
   final ValueChanged<int> onSelect;
+  final ValueChanged<String> onAccountSelect;
+  final void Function(AccountType, bool) onToggleGroup;
+  final ValueChanged<double> onWidthChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 244,
-      color: const Color(0xFF102A43),
-      padding: const EdgeInsets.fromLTRB(18, 28, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SizedBox(
+      width: sidebarWidth,
+      child: Stack(
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 10, bottom: 38),
-            child: Row(
+          Container(
+            color: const Color(0xFF102A43),
+            padding: const EdgeInsets.fromLTRB(18, 28, 18, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.account_balance_wallet,
-                  color: Color(0xFF7FE0D4),
-                  size: 28,
+                const Padding(
+                  padding: EdgeInsets.only(left: 10, bottom: 38),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet,
+                        color: Color(0xFF7FE0D4),
+                        size: 28,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        'Financial App',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(width: 10),
-                Text(
-                  'Financial App',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
+                _NavItem(
+                  icon: Icons.dashboard_outlined,
+                  label: 'Επισκόπηση',
+                  selected: selected == 0,
+                  onTap: () => onSelect(0),
+                ),
+                _NavItem(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Συναλλαγές',
+                  selected: selected == 1,
+                  onTap: () => onSelect(1),
+                ),
+                _NavItem(
+                  icon: Icons.insights_outlined,
+                  label: 'Reports',
+                  selected: selected == 2,
+                  onTap: () => onSelect(2),
+                ),
+                const Divider(color: Color(0x335E7792), height: 26),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: accountTypeOrder
+                          .where((type) => balances[type]?.isNotEmpty ?? false)
+                          .map(
+                            (type) => _NavAccountGroup(
+                              type: type,
+                              entries: balances[type]!,
+                              collapsed: collapsedGroups.contains(type),
+                              selectedAccount: selectedAccount,
+                              onAccountSelect: onAccountSelect,
+                              onToggle: (collapsed) =>
+                                  onToggleGroup(type, collapsed),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: Text(
+                    'MVP • YNAB CSV import\n$appVersion',
+                    style: TextStyle(color: Color(0xFF9FB3C8), fontSize: 12),
                   ),
                 ),
               ],
             ),
           ),
-          _NavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Επισκόπηση',
-            selected: selected == 0,
-            onTap: () => onSelect(0),
-          ),
-          _NavItem(
-            icon: Icons.receipt_long_outlined,
-            label: 'Συναλλαγές',
-            selected: selected == 1,
-            onTap: () => onSelect(1),
-          ),
-          _NavItem(
-            icon: Icons.insights_outlined,
-            label: 'Reports',
-            selected: selected == 2,
-            onTap: () => onSelect(2),
-          ),
-          const Spacer(),
-          const Padding(
-            padding: EdgeInsets.all(10),
-            child: Text(
-              'MVP • YNAB CSV import\n$appVersion',
-              style: TextStyle(color: Color(0xFF9FB3C8), fontSize: 12),
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeLeftRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragUpdate: (details) =>
+                    onWidthChanged(sidebarWidth + details.delta.dx),
+                child: const SizedBox(width: 8),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _NavAccountGroup extends StatelessWidget {
+  const _NavAccountGroup({
+    required this.type,
+    required this.entries,
+    required this.collapsed,
+    required this.selectedAccount,
+    required this.onAccountSelect,
+    required this.onToggle,
+  });
+
+  final AccountType type;
+  final List<MapEntry<String, double>> entries;
+  final bool collapsed;
+  final String? selectedAccount;
+  final ValueChanged<String> onAccountSelect;
+  final ValueChanged<bool> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accountTypeColor(type);
+    final total = entries.fold<double>(0, (sum, entry) => sum + entry.value);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => onToggle(!collapsed),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 4, 5),
+            child: Row(
+              children: [
+                Icon(
+                  collapsed ? Icons.chevron_right : Icons.expand_more,
+                  size: 17,
+                  color: const Color(0xFF9FB3C8),
+                ),
+                Expanded(
+                  child: Text(
+                    uppercaseWithoutGreekTones(accountTypeLabel(type)),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF9FB3C8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .6,
+                    ),
+                  ),
+                ),
+                Text(
+                  NumberFormat.currency(
+                    locale: 'el_GR',
+                    symbol: '€',
+                  ).format(total),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (!collapsed)
+          ...entries.map(
+            (entry) => _NavAccountItem(
+              name: entry.key,
+              balance: entry.value,
+              selected: selectedAccount == entry.key,
+              onTap: () => onAccountSelect(entry.key),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _NavAccountItem extends StatelessWidget {
+  const _NavAccountItem({
+    required this.name,
+    required this.balance,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String name;
+  final double balance;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(8),
+    onTap: onTap,
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF2C5870) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? Colors.white : const Color(0xFFD0DCE7),
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            NumberFormat.currency(locale: 'el_GR', symbol: '€').format(balance),
+            style: TextStyle(
+              color: selected ? Colors.white : const Color(0xFFD0DCE7),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _NavItem extends StatelessWidget {
