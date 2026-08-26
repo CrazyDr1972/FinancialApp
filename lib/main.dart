@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,13 +9,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.3';
+const appVersion = 'v0.1.7';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('el_GR');
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
     await windowManager.ensureInitialized();
     final preferences = await SharedPreferences.getInstance();
@@ -109,6 +113,20 @@ class Transaction {
   final String cleared;
 
   double get net => inflow - outflow;
+}
+
+class NetWorthPoint {
+  const NetWorthPoint({
+    required this.month,
+    required this.assets,
+    required this.debts,
+    required this.netWorth,
+  });
+
+  final DateTime month;
+  final double assets;
+  final double debts;
+  final double netWorth;
 }
 
 enum AccountType {
@@ -227,6 +245,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   String? _selectedCategory;
   bool _loading = false;
   String? _error;
+  int _reportMode = 0;
+  int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   double _sidebarWidth = 300;
   Timer? _windowSaveTimer;
@@ -438,6 +458,57 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     return values;
   }
 
+  List<NetWorthPoint> get _netWorthPoints {
+    final relevant = _transactions.where((transaction) {
+      return !transaction.date.isAfter(DateTime.now());
+    }).toList();
+    if (relevant.isEmpty) return const [];
+    relevant.sort((a, b) => a.date.compareTo(b.date));
+    DateTime monthOf(DateTime date) => DateTime(date.year, date.month);
+    final firstMonth = monthOf(relevant.first.date);
+    final lastMonth = monthOf(DateTime.now());
+    final monthlyAssets = <DateTime, double>{};
+    final monthlyDebts = <DateTime, double>{};
+    for (final transaction in relevant) {
+      final type = classifyAccount(transaction.account);
+      if (type == AccountType.liquid ||
+          type == AccountType.investment ||
+          type == AccountType.asset) {
+        monthlyAssets.update(
+          monthOf(transaction.date),
+          (value) => value + transaction.net,
+          ifAbsent: () => transaction.net,
+        );
+      } else if (type == AccountType.creditCard || type == AccountType.loan) {
+        monthlyDebts.update(
+          monthOf(transaction.date),
+          (value) => value - transaction.net,
+          ifAbsent: () => -transaction.net,
+        );
+      }
+    }
+    var assets = 0.0;
+    var debts = 0.0;
+    final points = <NetWorthPoint>[];
+    for (
+      var month = firstMonth;
+      !month.isAfter(lastMonth);
+      month = DateTime(month.year, month.month + 1)
+    ) {
+      assets = (assets + (monthlyAssets[month] ?? 0)).clamp(0, double.infinity);
+      debts = (debts + (monthlyDebts[month] ?? 0)).clamp(0, double.infinity);
+      points.add(
+        NetWorthPoint(
+          month: month,
+          assets: assets,
+          debts: debts,
+          netWorth: assets - debts,
+        ),
+      );
+    }
+    return points;
+  }
+
   Future<void> _importRegister() async {
     setState(() {
       _loading = true;
@@ -636,11 +707,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   Widget _buildContent(bool wide) {
+    final showHeader = !(_section == 2 && _reportMode == 1);
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(
-          child: _Header(onImport: _importRegister, loading: _loading),
-        ),
+        if (showHeader)
+          SliverToBoxAdapter(
+            child: _Header(onImport: _importRegister, loading: _loading),
+          ),
         SliverPadding(
           padding: EdgeInsets.fromLTRB(wide ? 38 : 18, 24, wide ? 38 : 18, 32),
           sliver: SliverToBoxAdapter(
@@ -799,6 +872,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   Widget _buildReports() {
     if (_transactions.isEmpty) return _EmptyState(onImport: _importRegister);
+    if (_reportMode == 1) return _buildNetWorthReport();
     final categories = _categoryOutflows.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final max = categories.isEmpty ? 1.0 : categories.first.value;
@@ -808,6 +882,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         const _PageTitle(
           title: 'Reports',
           subtitle: 'Πού κατευθύνθηκαν τα χρήματά σου.',
+        ),
+        const SizedBox(height: 18),
+        _ReportSwitcher(
+          selected: _reportMode,
+          onChanged: (value) => setState(() => _reportMode = value),
         ),
         const SizedBox(height: 20),
         Card(
@@ -841,6 +920,327 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       ],
     );
   }
+
+  Widget _buildNetWorthReport() {
+    final points = _netWorthPoints;
+    if (points.isEmpty) return const SizedBox.shrink();
+    final selectedIndex =
+        _hoveredNetWorthIndex != null && _hoveredNetWorthIndex! < points.length
+        ? _hoveredNetWorthIndex!
+        : points.length - 1;
+    final selectedPoint = points[selectedIndex];
+    final previous = selectedIndex > 0
+        ? points[selectedIndex - 1]
+        : selectedPoint;
+    final change = selectedPoint.netWorth - previous.netWorth;
+    final ratio = selectedPoint.assets == 0
+        ? 0.0
+        : selectedPoint.debts / selectedPoint.assets * 100;
+    final range =
+        '${DateFormat('MMMM yyyy', 'el_GR').format(points.first.month)} - '
+        '${DateFormat('MMMM yyyy', 'el_GR').format(points.last.month)}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _PageTitle(
+          title: 'Net Worth',
+          subtitle: 'Η εξέλιξη της καθαρής θέσης σου στον χρόνο.',
+        ),
+        const SizedBox(height: 18),
+        _ReportSwitcher(
+          selected: _reportMode,
+          onChanged: (value) => setState(() => _reportMode = value),
+        ),
+        const SizedBox(height: 14),
+        Text(range, style: TextStyle(color: Colors.blueGrey.shade600)),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 150,
+              child: Text(
+                DateFormat('MMMM yyyy', 'en_US').format(selectedPoint.month),
+                style: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
+              ),
+            ),
+            Expanded(
+              child: _NetWorthSummary(
+                point: selectedPoint,
+                change: change,
+                debtRatio: ratio,
+                currency: _currency,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 18, 18, 12),
+            child: SizedBox(
+              height: 520,
+              width: double.infinity,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final chartWidth = constraints.maxWidth;
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: chartWidth,
+                      child: MouseRegion(
+                        onHover: (event) {
+                          final plotWidth = chartWidth - 58;
+                          final rawIndex =
+                              ((event.localPosition.dx - 58) /
+                                      math.max(1, plotWidth) *
+                                      math.max(1, points.length - 1))
+                                  .round()
+                                  .clamp(0, points.length - 1);
+                          final index = rawIndex.toInt();
+                          if (_hoveredNetWorthIndex != index) {
+                            setState(() => _hoveredNetWorthIndex = index);
+                          }
+                        },
+                        onExit: (_) =>
+                            setState(() => _hoveredNetWorthIndex = null),
+                        child: CustomPaint(
+                          painter: _NetWorthChartPainter(
+                            points,
+                            hoveredIndex: _hoveredNetWorthIndex,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReportSwitcher extends StatelessWidget {
+  const _ReportSwitcher({required this.selected, required this.onChanged});
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SegmentedButton<int>(
+    segments: const [
+      ButtonSegment(value: 0, label: Text('Εκροές ανά κατηγορία')),
+      ButtonSegment(value: 1, label: Text('Net Worth')),
+    ],
+    selected: {selected},
+    onSelectionChanged: (values) => onChanged(values.first),
+  );
+}
+
+class _NetWorthSummary extends StatelessWidget {
+  const _NetWorthSummary({
+    required this.point,
+    required this.change,
+    required this.debtRatio,
+    required this.currency,
+  });
+  final NetWorthPoint point;
+  final double change;
+  final double debtRatio;
+  final NumberFormat currency;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 0,
+    runSpacing: 10,
+    children: [
+      _SummaryMetric(
+        label: 'Debts',
+        value: currency.format(point.debts),
+        color: const Color(0xFFF36C5A),
+      ),
+      _SummaryMetric(
+        label: 'Assets',
+        value: currency.format(point.assets),
+        color: const Color(0xFF83CDE3),
+      ),
+      _SummaryMetric(
+        label: 'Debt Ratio',
+        value: '${debtRatio.toStringAsFixed(0)}%',
+        color: const Color(0xFF102A43),
+      ),
+      _SummaryMetric(
+        label: 'Net Worth',
+        value: currency.format(point.netWorth),
+        color: const Color(0xFF72AFE4),
+      ),
+      _SummaryMetric(
+        label: 'Change',
+        value: currency.format(change),
+        color: const Color(0xFF72AFE4),
+      ),
+    ],
+  );
+}
+
+class _SummaryMetric extends StatelessWidget {
+  const _SummaryMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final String label;
+  final String value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 150,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    decoration: const BoxDecoration(
+      border: Border(left: BorderSide(color: Color(0xFFE0E0E0))),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(width: 16, height: 4, color: color),
+            const SizedBox(width: 7),
+            Text(label, style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
+  );
+}
+
+class _NetWorthChartPainter extends CustomPainter {
+  _NetWorthChartPainter(this.points, {this.hoveredIndex});
+  final List<NetWorthPoint> points;
+  final int? hoveredIndex;
+  static const assetsColor = Color(0xFF83CDE3);
+  static const debtsColor = Color(0xFFF36C5A);
+  static const lineColor = Color(0xFF72AFE4);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+    const left = 58.0;
+    const top = 22.0;
+    const bottom = 54.0;
+    final chartWidth = size.width - left;
+    final chartHeight = size.height - top - bottom;
+    final maximum = points
+        .fold<double>(
+          0,
+          (max, point) => math.max(max, math.max(point.assets, point.debts)),
+        )
+        .clamp(1, double.infinity);
+    final netMax = points
+        .fold<double>(0, (max, point) => math.max(max, point.netWorth.abs()))
+        .clamp(1, double.infinity);
+    final scaleMax = math.max(maximum, netMax);
+    final gridPaint = Paint()
+      ..color = const Color(0xFFE0E0E0)
+      ..strokeWidth = 1;
+    final assetsPaint = Paint()
+      ..color = assetsColor
+      ..strokeWidth = 1.5;
+    final debtsPaint = Paint()
+      ..color = debtsColor
+      ..strokeWidth = 1.5;
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    double xFor(int index) =>
+        left + (index / math.max(1, points.length - 1)) * chartWidth;
+    double yFor(double value) =>
+        top + chartHeight - (value / scaleMax) * chartHeight;
+    final textStyle = const TextStyle(color: Color(0xFF4F5965), fontSize: 10);
+    for (var i = 0; i <= 6; i++) {
+      final y = top + chartHeight * i / 6;
+      canvas.drawLine(Offset(left, y), Offset(size.width, y), gridPaint);
+      _drawText(
+        canvas,
+        '€${(scaleMax * (6 - i) / 6 / 1000).toStringAsFixed(0)}k',
+        Offset(0, y - 6),
+        textStyle,
+      );
+    }
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final point = points[i];
+      final x = xFor(i);
+      final barWidth = math.max(1.0, chartWidth / points.length * .28);
+      canvas.drawLine(
+        Offset(x - barWidth, yFor(point.debts)),
+        Offset(x - barWidth, top + chartHeight),
+        debtsPaint,
+      );
+      canvas.drawLine(
+        Offset(x + barWidth, yFor(point.assets)),
+        Offset(x + barWidth, top + chartHeight),
+        assetsPaint,
+      );
+      final linePoint = Offset(x, yFor(point.netWorth));
+      if (i == 0) {
+        path.moveTo(linePoint.dx, linePoint.dy);
+      } else {
+        path.lineTo(linePoint.dx, linePoint.dy);
+      }
+      final labelInterval = points.length > 60 ? 6 : 3;
+      if (i % labelInterval == 0 || i == points.length - 1) {
+        canvas.save();
+        canvas.translate(x - 4, top + chartHeight + 8);
+        canvas.rotate(-math.pi / 4);
+        _drawText(
+          canvas,
+          DateFormat('MMM yy', 'en_US').format(point.month),
+          Offset.zero,
+          textStyle,
+        );
+        canvas.restore();
+      }
+    }
+    canvas.drawPath(path, linePaint);
+    for (var i = 0; i < points.length; i++) {
+      canvas.drawCircle(
+        Offset(xFor(i), yFor(points[i].netWorth)),
+        2.5,
+        Paint()..color = lineColor,
+      );
+    }
+    if (hoveredIndex != null && hoveredIndex! < points.length) {
+      final x = xFor(hoveredIndex!);
+      final y = yFor(points[hoveredIndex!].netWorth);
+      final hoverPaint = Paint()
+        ..color = const Color(0xFF607D8B)
+        ..strokeWidth = 1;
+      canvas.drawLine(Offset(x, top), Offset(x, top + chartHeight), hoverPaint);
+      canvas.drawCircle(Offset(x, y), 4.5, Paint()..color = lineColor);
+      canvas.drawCircle(Offset(x, y), 2, Paint()..color = Colors.white);
+    }
+  }
+
+  void _drawText(Canvas canvas, String text, Offset offset, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(covariant _NetWorthChartPainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.hoveredIndex != hoveredIndex;
 }
 
 class _Navigation extends StatelessWidget {
