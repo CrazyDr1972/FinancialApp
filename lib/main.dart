@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.23';
+const appVersion = 'v0.1.24';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -37,6 +37,7 @@ Future<void> main() async {
       if (savedX != null && savedY != null) {
         await windowManager.setPosition(Offset(savedX, savedY));
       }
+      await windowManager.maximize();
       await windowManager.show();
       await windowManager.focus();
     });
@@ -2237,13 +2238,13 @@ class _TransactionTable extends StatelessWidget {
       sortColumnIndex: sortColumnIndex,
       sortAscending: sortAscending,
       columns: [
-        DataColumn(onSort: onSort, label: _columnHeader(0, 'Ημερομηνία')),
-        DataColumn(onSort: onSort, label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
-        DataColumn(onSort: onSort, label: _columnHeader(2, 'Κατηγορία')),
-        DataColumn(onSort: onSort, label: _columnHeader(3, 'Memo')),
-        DataColumn(onSort: onSort, label: _columnHeader(4, 'Λογαριασμός')),
-        DataColumn(onSort: onSort, label: _columnHeader(5, 'Ποσό')),
-        DataColumn(onSort: onSort, label: _columnHeader(6, 'Κατάσταση')),
+        DataColumn(label: _columnHeader(0, 'Ημερομηνία')),
+        DataColumn(label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
+        DataColumn(label: _columnHeader(2, 'Κατηγορία')),
+        DataColumn(label: _columnHeader(3, 'Memo')),
+        DataColumn(label: _columnHeader(4, 'Λογαριασμός')),
+        DataColumn(label: _columnHeader(5, 'Ποσό')),
+        DataColumn(label: _columnHeader(6, 'Κατάσταση')),
       ],
       rows: transactions
           .take(250)
@@ -2330,17 +2331,29 @@ class _TransactionTable extends StatelessWidget {
 
   Widget _columnHeader(int index, String label) => GestureDetector(
     behavior: HitTestBehavior.opaque,
+    onTap: () => onSort(
+      index,
+      sortColumnIndex == index ? !sortAscending : true,
+    ),
     onHorizontalDragUpdate: (details) => onColumnWidthChanged(
       index,
       columnWidths[index] + details.delta.dx,
     ),
     child: SizedBox(
+      height: 56,
       width: columnWidths[index],
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
           const SizedBox(width: 6),
-          Container(width: 2, height: 20, color: const Color(0xFFD8E0E8)),
+          if (sortColumnIndex == index)
+            Icon(
+              sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+              size: 20,
+              color: const Color(0xFF52606D),
+            ),
+          Container(width: 2, color: const Color(0xFFD8E0E8)),
         ],
       ),
     ),
