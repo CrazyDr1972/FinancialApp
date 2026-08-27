@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.31';
+const appVersion = 'v0.1.32';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1152,6 +1152,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onFlagPressed: _cycleFlag,
                 collapsedSplits: _collapsedSplits,
                 onSplitToggled: _setSplitCollapsed,
+                scheduled: true,
               ),
             ),
           const SizedBox(height: 12),
@@ -1174,6 +1175,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onFlagPressed: _cycleFlag,
               collapsedSplits: _collapsedSplits,
               onSplitToggled: _setSplitCollapsed,
+              scheduled: false,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1356,6 +1358,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onFlagPressed: _cycleFlag,
                 collapsedSplits: _collapsedSplits,
                 onSplitToggled: _setSplitCollapsed,
+                scheduled: true,
               ),
             ),
           const SizedBox(height: 12),
@@ -1385,6 +1388,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onFlagPressed: _cycleFlag,
               collapsedSplits: _collapsedSplits,
               onSplitToggled: _setSplitCollapsed,
+              scheduled: false,
             ),
           ),
       ],
@@ -2311,6 +2315,7 @@ class _TransactionTable extends StatelessWidget {
     required this.onFlagPressed,
     required this.collapsedSplits,
     required this.onSplitToggled,
+    required this.scheduled,
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
@@ -2329,6 +2334,7 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onFlagPressed;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
+  final bool scheduled;
 
   List<_TransactionDisplayRow> _displayRows() {
     final rows = <_TransactionDisplayRow>[];
@@ -2411,6 +2417,12 @@ class _TransactionTable extends StatelessWidget {
       headingRowHeight: 34,
       dataRowMinHeight: 34,
       dataRowMaxHeight: 34,
+      dataRowColor: scheduled
+          ? const MaterialStatePropertyAll(Color(0xFFFBF8F0))
+          : null,
+      headingRowColor: scheduled
+          ? const MaterialStatePropertyAll(Color(0xFFF3F0E7))
+          : null,
       sortColumnIndex: sortColumnIndex,
       sortAscending: sortAscending,
       columns: [
@@ -2804,20 +2816,40 @@ class _TransactionGroupHeader extends StatelessWidget {
   final VoidCallback onToggle;
 
   @override
-  Widget build(BuildContext context) => Card(
-    color: const Color(0xFFF3F0E7),
-    child: ListTile(
-      dense: true,
-      leading: Icon(
-        collapsed ? Icons.chevron_right : Icons.expand_more,
-        color: const Color(0xFF6B6254),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onToggle,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF3F0E7),
+        border: Border(
+          top: BorderSide(color: Color(0xFFE0D9CA)),
+          bottom: BorderSide(color: Color(0xFFE0D9CA)),
+        ),
       ),
-      title: Text(
-        title,
-        style: const TextStyle(fontWeight: FontWeight.w800),
+      child: Row(
+        children: [
+          Icon(
+            collapsed ? Icons.chevron_right : Icons.expand_more,
+            color: Color(0xFF6B6254),
+            size: 19,
+          ),
+          const SizedBox(width: 5),
+          const Icon(
+            Icons.calendar_month_outlined,
+            size: 18,
+            color: Color(0xFF6B6254),
+          ),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(width: 8),
+          Text(
+            '$count συναλλαγές',
+            style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 12),
+          ),
+        ],
       ),
-      subtitle: Text('$count συναλλαγές'),
-      onTap: onToggle,
     ),
   );
 }
