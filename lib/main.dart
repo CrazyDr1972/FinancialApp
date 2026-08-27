@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.15';
+const appVersion = 'v0.1.16';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -160,6 +160,7 @@ AccountType classifyAccount(String account) {
     return AccountType.inactive;
   }
   if (name == 'δανεικά') return AccountType.personalDebts;
+  if (name.contains('prepaid')) return AccountType.creditCard;
   if (name.contains('visa')) {
     return AccountType.creditCard;
   }
@@ -425,6 +426,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int _compareAccounts(String first, String second) {
     final firstType = classifyAccount(first);
     final secondType = classifyAccount(second);
+    if (firstType == AccountType.creditCard &&
+        secondType == AccountType.creditCard) {
+      const prepaidName = 'εθνική prepaid';
+      final firstIsPrepaid = first.toLowerCase() == prepaidName;
+      final secondIsPrepaid = second.toLowerCase() == prepaidName;
+      if (firstIsPrepaid != secondIsPrepaid) {
+        return firstIsPrepaid ? 1 : -1;
+      }
+    }
     if (firstType == AccountType.liquid && secondType == AccountType.liquid) {
       final firstName = first.toLowerCase();
       final secondName = second.toLowerCase();
