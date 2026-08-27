@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.18';
+const appVersion = 'v0.1.20';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -115,6 +115,18 @@ class Transaction {
   final String cleared;
 
   double get net => inflow - outflow;
+
+  Transaction copyWith({String? cleared}) => Transaction(
+    account: account,
+    date: date,
+    payee: payee,
+    category: category,
+    categoryGroup: categoryGroup,
+    memo: memo,
+    outflow: outflow,
+    inflow: inflow,
+    cleared: cleared ?? this.cleared,
+  );
 }
 
 class NetWorthPoint {
@@ -249,6 +261,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
+  List<double> _columnWidths = [120, 220, 180, 180, 130, 90];
   double _sidebarWidth = 300;
   Timer? _windowSaveTimer;
 
@@ -258,6 +271,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     _loadSeedRegister();
     _loadCollapsedGroups();
     _loadSidebarWidth();
+    _loadColumnWidths();
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       windowManager.addListener(this);
     }
@@ -277,6 +291,29 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     setState(() => _sidebarWidth = clamped);
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble('sidebar-width', clamped);
+  }
+
+  Future<void> _loadColumnWidths() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final saved = preferences.getStringList('transaction-column-widths');
+      if (!mounted || saved == null || saved.length != _columnWidths.length) {
+        return;
+      }
+      final widths = saved.map(double.parse).toList();
+      setState(() => _columnWidths = widths);
+    } catch (_) {}
+  }
+
+  Future<void> _setColumnWidth(int index, double width) async {
+    final widths = [..._columnWidths];
+    widths[index] = width.clamp(80, 420).toDouble();
+    setState(() => _columnWidths = widths);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      'transaction-column-widths',
+      widths.map((value) => value.toString()).toList(),
+    );
   }
 
   void _scheduleWindowSave() {
@@ -798,6 +835,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     });
   }
 
+  void _toggleTransactionCleared(Transaction transaction) {
+    if (transaction.cleared.toLowerCase() == 'reconciled') return;
+    final index = _transactions.indexOf(transaction);
+    if (index < 0) return;
+    final nextStatus = transaction.cleared.toLowerCase() == 'cleared'
+        ? 'Uncleared'
+        : 'Cleared';
+    setState(() {
+      _transactions[index] = transaction.copyWith(cleared: nextStatus);
+    });
+  }
+
   Widget _buildContent(bool wide) {
     final showHeader = !(_section == 2 && _reportMode == 1) &&
         !(_section == 1 && _selectedAccount != null);
@@ -968,6 +1017,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactions: futureTransactions,
                 currency: _currency,
                 dateFormat: _dateFormat,
+                onStatusChanged: _toggleTransactionCleared,
+                columnWidths: _columnWidths,
+                onColumnWidthChanged: _setColumnWidth,
               ),
             ),
           const SizedBox(height: 12),
@@ -978,6 +1030,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactions: pastTransactions,
               currency: _currency,
               dateFormat: _dateFormat,
+              onStatusChanged: _toggleTransactionCleared,
+              columnWidths: _columnWidths,
+              onColumnWidthChanged: _setColumnWidth,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1053,7 +1108,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             const SizedBox(width: 8),
             FilledButton(
               onPressed: () {},
-              child: const Text('Συμφωνία'),
+              child: const Text('Reconcile'),
             ),
           ],
         ),
@@ -1061,7 +1116,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         Card(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            child: Row(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
               children: [
                 _AccountBalanceMetric(
                   label: 'Cleared Balance',
@@ -1079,6 +1137,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                   emphasized: true,
                 ),
               ],
+              ),
             ),
           ),
         ),
@@ -1139,6 +1198,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactions: future,
                 currency: _currency,
                 dateFormat: _dateFormat,
+                onStatusChanged: _toggleTransactionCleared,
+                columnWidths: _columnWidths,
+                onColumnWidthChanged: _setColumnWidth,
               ),
             ),
           const SizedBox(height: 12),
@@ -1156,6 +1218,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactions: current,
               currency: _currency,
               dateFormat: _dateFormat,
+              onStatusChanged: _toggleTransactionCleared,
+              columnWidths: _columnWidths,
+              onColumnWidthChanged: _setColumnWidth,
             ),
           ),
       ],
@@ -2070,31 +2135,42 @@ class _TransactionTable extends StatelessWidget {
     required this.transactions,
     required this.currency,
     required this.dateFormat,
+    required this.onStatusChanged,
+    required this.columnWidths,
+    required this.onColumnWidthChanged,
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
   final DateFormat dateFormat;
+  final ValueChanged<Transaction> onStatusChanged;
+  final List<double> columnWidths;
+  final void Function(int index, double width) onColumnWidthChanged;
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
     child: DataTable(
-      columns: const [
-        DataColumn(label: Text('Ημερομηνία')),
-        DataColumn(label: Text('Πληρωτής / Έμπορος')),
-        DataColumn(label: Text('Κατηγορία')),
-        DataColumn(label: Text('Λογαριασμός')),
-        DataColumn(label: Text('Ποσό')),
-        DataColumn(label: Text('Κατάσταση')),
+      columns: [
+        DataColumn(label: _columnHeader(0, 'Ημερομηνία')),
+        DataColumn(label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
+        DataColumn(label: _columnHeader(2, 'Κατηγορία')),
+        DataColumn(label: _columnHeader(3, 'Λογαριασμός')),
+        DataColumn(label: _columnHeader(4, 'Ποσό')),
+        DataColumn(label: _columnHeader(5, 'Κατάσταση')),
       ],
       rows: transactions
           .take(250)
           .map(
             (transaction) => DataRow(
               cells: [
-                DataCell(Text(dateFormat.format(transaction.date))),
                 DataCell(
                   SizedBox(
-                    width: 190,
+                    width: columnWidths[0],
+                    child: Text(dateFormat.format(transaction.date)),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: columnWidths[1],
                     child: Text(
                       transaction.payee.isEmpty
                           ? 'Χωρίς όνομα'
@@ -2105,7 +2181,7 @@ class _TransactionTable extends StatelessWidget {
                 ),
                 DataCell(
                   SizedBox(
-                    width: 180,
+                    width: columnWidths[2],
                     child: Text(
                       transaction.category.isEmpty
                           ? 'Χωρίς κατηγορία'
@@ -2114,27 +2190,101 @@ class _TransactionTable extends StatelessWidget {
                     ),
                   ),
                 ),
-                DataCell(Text(transaction.account)),
                 DataCell(
-                  Text(
-                    transaction.outflow > 0
-                        ? '-${currency.format(transaction.outflow)}'
-                        : '+${currency.format(transaction.inflow)}',
-                    style: TextStyle(
-                      color: transaction.outflow > 0
-                          ? const Color(0xFFD45D4C)
-                          : const Color(0xFF2D8A5F),
-                      fontWeight: FontWeight.w700,
+                  SizedBox(
+                    width: columnWidths[3],
+                    child: Text(
+                      transaction.account,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
-                DataCell(Text(transaction.cleared)),
+                DataCell(
+                  SizedBox(
+                    width: columnWidths[4],
+                    child: Text(
+                      transaction.outflow > 0
+                          ? '-${currency.format(transaction.outflow)}'
+                          : '+${currency.format(transaction.inflow)}',
+                      style: TextStyle(
+                        color: transaction.outflow > 0
+                            ? const Color(0xFFD45D4C)
+                            : const Color(0xFF2D8A5F),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: columnWidths[5],
+                    child: _TransactionStatusIcon(
+                      status: transaction.cleared,
+                      onPressed: () => onStatusChanged(transaction),
+                    ),
+                  ),
+                ),
               ],
             ),
           )
           .toList(),
     ),
   );
+
+  Widget _columnHeader(int index, String label) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onHorizontalDragUpdate: (details) => onColumnWidthChanged(
+      index,
+      columnWidths[index] + details.delta.dx,
+    ),
+    child: SizedBox(
+      width: columnWidths[index],
+      child: Row(
+        children: [
+          Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: 6),
+          Container(width: 2, height: 20, color: const Color(0xFFD8E0E8)),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TransactionStatusIcon extends StatelessWidget {
+  const _TransactionStatusIcon({
+    required this.status,
+    required this.onPressed,
+  });
+  final String status;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.toLowerCase();
+    final reconciled = normalized == 'reconciled';
+    final cleared = normalized == 'cleared';
+    return IconButton(
+      tooltip: reconciled
+          ? 'Reconciled'
+          : cleared
+          ? 'Cleared - κλικ για Uncleared'
+          : 'Uncleared - κλικ για Cleared',
+      onPressed: reconciled ? null : onPressed,
+      icon: Icon(
+        reconciled
+            ? Icons.lock
+            : cleared
+            ? Icons.check_circle
+            : Icons.radio_button_unchecked,
+        size: 18,
+        color: reconciled
+            ? const Color(0xFF5B8F29)
+            : cleared
+            ? const Color(0xFF2D8A5F)
+            : const Color(0xFF9AA5B1),
+      ),
+    );
+  }
 }
 
 class _TransactionGroupHeader extends StatelessWidget {
@@ -2179,7 +2329,8 @@ class _AccountBalanceMetric extends StatelessWidget {
   final bool emphasized;
 
   @override
-  Widget build(BuildContext context) => Expanded(
+  Widget build(BuildContext context) => SizedBox(
+    width: 155,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2190,7 +2341,9 @@ class _AccountBalanceMetric extends StatelessWidget {
           style: TextStyle(
             fontSize: emphasized ? 20 : 17,
             fontWeight: FontWeight.w800,
-            color: emphasized ? const Color(0xFF159A9C) : const Color(0xFF102A43),
+            color: emphasized
+                ? const Color(0xFF159A9C)
+                : const Color(0xFF102A43),
           ),
         ),
       ],
