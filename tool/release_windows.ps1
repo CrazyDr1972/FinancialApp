@@ -1,6 +1,6 @@
 param(
-  [string]$Version = '0.1.35',
-  [int]$BuildNumber = 36
+  [string]$Version = '0.1.37',
+  [int]$BuildNumber = 38
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,11 +19,19 @@ finally {
 }
 
 # Keep one Financial App shortcut while leaving unrelated desktop links untouched.
+$shortcut = Join-Path $desktop 'Financial App.lnk'
+if (-not (Test-Path -LiteralPath $shortcut)) {
+  $legacy = Get-ChildItem -LiteralPath $desktop -Filter 'Financial App v*.lnk' -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($legacy) {
+    Move-Item -LiteralPath $legacy.FullName -Destination $shortcut
+  }
+}
+
 Get-ChildItem -LiteralPath $desktop -Filter 'Financial App v*.lnk' -File -ErrorAction SilentlyContinue |
   Remove-Item -Force
 
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = Join-Path $desktop "Financial App v$Version.lnk"
 $link = $shell.CreateShortcut($shortcut)
 $link.TargetPath = $exe
 $link.WorkingDirectory = $project

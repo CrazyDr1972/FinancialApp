@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.35';
+const appVersion = 'v0.1.37';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -267,6 +267,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   bool _futureTransactionsCollapsed = false;
   List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 180, 130, 90];
   final Set<Transaction> _selectedTransactions = {};
+  final Map<Transaction, Uint8List> _transactionImages = {};
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
@@ -315,13 +316,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   Future<void> _setColumnWidth(int index, double width) async {
     final widths = [..._columnWidths];
-    widths[index] = width.clamp(80, 420).toDouble();
+    final minimum = index < 2 ? 34.0 : 80.0;
+    widths[index] = width.clamp(minimum, 420).toDouble();
     setState(() => _columnWidths = widths);
     final preferences = await SharedPreferences.getInstance();
     await preferences.setStringList(
       'transaction-column-widths',
       widths.map((value) => value.toString()).toList(),
     );
+  }
+
+  Future<void> _pickTransactionImage(Transaction transaction) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+    );
+    final bytes = result.isEmpty ? null : await result.single.readAsBytes();
+    if (bytes == null || !mounted) return;
+    setState(() => _transactionImages[transaction] = bytes);
   }
 
   void _scheduleWindowSave() {
@@ -1184,6 +1195,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 collapsedSplits: _collapsedSplits,
                 onSplitToggled: _setSplitCollapsed,
                 scheduled: true,
+                transactionImages: _transactionImages,
+                onImageDoubleTap: _pickTransactionImage,
               ),
             ),
           const SizedBox(height: 12),
@@ -1207,6 +1220,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               collapsedSplits: _collapsedSplits,
               onSplitToggled: _setSplitCollapsed,
               scheduled: false,
+              transactionImages: _transactionImages,
+              onImageDoubleTap: _pickTransactionImage,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1405,6 +1420,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 collapsedSplits: _collapsedSplits,
                 onSplitToggled: _setSplitCollapsed,
                 scheduled: true,
+                transactionImages: _transactionImages,
+                onImageDoubleTap: _pickTransactionImage,
               ),
             ),
           const SizedBox(height: 12),
@@ -1435,6 +1452,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               collapsedSplits: _collapsedSplits,
               onSplitToggled: _setSplitCollapsed,
               scheduled: false,
+              transactionImages: _transactionImages,
+              onImageDoubleTap: _pickTransactionImage,
             ),
           ),
       ],
@@ -2363,6 +2382,8 @@ class _TransactionTable extends StatelessWidget {
     required this.onTransactionSelected,
     required this.onSplitSelected,
     required this.onFlagPressed,
+    required this.transactionImages,
+    required this.onImageDoubleTap,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2382,6 +2403,8 @@ class _TransactionTable extends StatelessWidget {
   final void Function(List<Transaction> transactions, bool selected)
   onSplitSelected;
   final ValueChanged<Transaction> onFlagPressed;
+  final Map<Transaction, Uint8List> transactionImages;
+  final ValueChanged<Transaction> onImageDoubleTap;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2497,6 +2520,8 @@ class _TransactionTable extends StatelessWidget {
               currency: currency,
               onStatusChanged: onStatusChanged,
               onFlagPressed: onFlagPressed,
+              transactionImages: transactionImages,
+              onImageDoubleTap: onImageDoubleTap,
               selected: displayRow.isSplit
                   ? displayRow.children!.every(selectedTransactions.contains)
                   : selectedTransactions.contains(displayRow.transaction),
@@ -2524,6 +2549,8 @@ class _TransactionTable extends StatelessWidget {
                   dateFormat: dateFormat,
                   onStatusChanged: onStatusChanged,
                   onFlagPressed: onFlagPressed,
+                  transactionImages: transactionImages,
+                  onImageDoubleTap: onImageDoubleTap,
                   selected: selectedTransactions.contains(child),
                   onSelected: (selected) =>
                       onTransactionSelected(child, selected),
@@ -2538,7 +2565,9 @@ class _TransactionTable extends StatelessWidget {
     ),
   );
 
-  Widget _columnHeader(int index, String label) => GestureDetector(
+  Widget _columnHeader(int index, String label) => MouseRegion(
+    cursor: SystemMouseCursors.resizeColumn,
+    child: GestureDetector(
     behavior: HitTestBehavior.opaque,
     onTap: () => onSort(
       index,
@@ -2575,9 +2604,12 @@ class _TransactionTable extends StatelessWidget {
         ],
       ),
     ),
+    ),
   );
 
-  Widget _iconColumnHeader(int index, IconData icon) => GestureDetector(
+  Widget _iconColumnHeader(int index, IconData icon) => MouseRegion(
+    cursor: SystemMouseCursors.resizeColumn,
+    child: GestureDetector(
     behavior: HitTestBehavior.opaque,
     onHorizontalDragUpdate: (details) => onColumnWidthChanged(
       index,
@@ -2596,6 +2628,7 @@ class _TransactionTable extends StatelessWidget {
           ),
         ],
       ),
+    ),
     ),
   );
 }
@@ -2623,6 +2656,8 @@ class _TransactionDisplayRow {
     required DateFormat dateFormat,
     required ValueChanged<Transaction> onStatusChanged,
     required ValueChanged<Transaction> onFlagPressed,
+    required Map<Transaction, Uint8List> transactionImages,
+    required ValueChanged<Transaction> onImageDoubleTap,
     required bool selected,
     required ValueChanged<bool> onSelected,
     required bool enabled,
@@ -2647,17 +2682,9 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[1],
-            child: Center(
-              child: IconButton(
-                tooltip: 'Εικόνα συναλλαγής',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 34,
-                  height: 34,
-                ),
-                onPressed: () {},
-                icon: const Icon(Icons.image_outlined, size: 17),
-              ),
+            child: _TransactionImageCell(
+              bytes: transactionImages[transaction],
+              onDoubleTap: () => onImageDoubleTap(transaction),
             ),
           ),
         ),
@@ -2741,6 +2768,37 @@ class _TransactionDisplayRow {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TransactionImageCell extends StatelessWidget {
+  const _TransactionImageCell({required this.bytes, required this.onDoubleTap});
+  final Uint8List? bytes;
+  final VoidCallback onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = bytes == null
+        ? const Icon(Icons.image_outlined, size: 17)
+        : Image.memory(bytes!, width: 24, height: 24, fit: BoxFit.contain);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: bytes == null
+          ? null
+          : (_) => showDialog<void>(
+                context: context,
+                builder: (_) => Dialog(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Image.memory(bytes!, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+      child: GestureDetector(
+        onDoubleTap: onDoubleTap,
+        child: Center(child: image),
+      ),
     );
   }
 }
