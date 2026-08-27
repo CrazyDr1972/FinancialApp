@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.24';
+const appVersion = 'v0.1.25';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2231,6 +2231,70 @@ class _TransactionTable extends StatelessWidget {
   final int sortColumnIndex;
   final bool sortAscending;
   final void Function(int columnIndex, bool ascending) onSort;
+
+  List<_TransactionDisplayRow> _displayRows() {
+    final rows = <_TransactionDisplayRow>[];
+    final rowOrders = <int>[];
+    final splitGroups = <String, List<Transaction>>{};
+    final splitOrder = <String>[];
+    final splitFirstOrder = <String, int>{};
+    final splitPattern = RegExp(r'^Split \(\d+/\d+\)\s*(.*)$');
+    var order = 0;
+    for (final transaction in transactions.take(250)) {
+      final match = splitPattern.firstMatch(transaction.memo);
+      if (match == null) {
+        rows.add(_TransactionDisplayRow(transaction));
+        rowOrders.add(order);
+        order++;
+        continue;
+      }
+      final baseMemo = match.group(1)!.trim();
+      final key =
+          '${transaction.date.year}-${transaction.date.month}-'
+          '${transaction.date.day}|${transaction.account}|$baseMemo';
+      if (!splitGroups.containsKey(key)) splitOrder.add(key);
+      splitFirstOrder.putIfAbsent(key, () => order);
+      splitGroups.putIfAbsent(key, () => []).add(transaction);
+      order++;
+    }
+    for (final key in splitOrder) {
+      final children = splitGroups[key]!;
+      if (children.length < 2) {
+        rows.add(_TransactionDisplayRow(children.first));
+        rowOrders.add(splitFirstOrder[key]!);
+        continue;
+      }
+      final first = children.first;
+      final totalInflow = children.fold<double>(
+        0,
+        (sum, transaction) => sum + transaction.inflow,
+      );
+      final totalOutflow = children.fold<double>(
+        0,
+        (sum, transaction) => sum + transaction.outflow,
+      );
+      final parent = Transaction(
+        account: first.account,
+        date: first.date,
+        payee: first.payee,
+        category: 'Split (Multiple Categories)...',
+        categoryGroup: '',
+        memo: first.memo.replaceFirst(splitPattern, '').trim(),
+        outflow: totalOutflow,
+        inflow: totalInflow,
+        cleared: children.every((item) => item.cleared == 'Reconciled')
+            ? 'Reconciled'
+            : children.every((item) => item.cleared == 'Cleared')
+            ? 'Cleared'
+            : 'Uncleared',
+      );
+      rows.add(_TransactionDisplayRow(parent, children: children));
+      rowOrders.add(splitFirstOrder[key]!);
+    }
+    final orderedIndexes = List.generate(rows.length, (index) => index)
+      ..sort((first, second) => rowOrders[first].compareTo(rowOrders[second]));
+    return orderedIndexes.map((index) => rows[index]).toList();
+  }
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
@@ -2246,15 +2310,18 @@ class _TransactionTable extends StatelessWidget {
         DataColumn(label: _columnHeader(5, 'Ποσό')),
         DataColumn(label: _columnHeader(6, 'Κατάσταση')),
       ],
-      rows: transactions
-          .take(250)
-          .map(
-            (transaction) => DataRow(
+      rows: _displayRows().expand((displayRow) {
+            final transaction = displayRow.transaction;
+            final cells = DataRow(
               cells: [
                 DataCell(
                   SizedBox(
                     width: columnWidths[0],
-                    child: Text(dateFormat.format(transaction.date)),
+                    child: Text(
+                      displayRow.isChild
+                          ? ''
+                          : dateFormat.format(transaction.date),
+                    ),
                   ),
                 ),
                 DataCell(
@@ -2319,12 +2386,28 @@ class _TransactionTable extends StatelessWidget {
                     child: _TransactionStatusIcon(
                       status: transaction.cleared,
                       onPressed: () => onStatusChanged(transaction),
+                      enabled: !displayRow.isSplit,
                     ),
                   ),
                 ),
               ],
-            ),
-          )
+            );
+            if (!displayRow.isSplit) return [cells];
+            return [
+              cells,
+              ...displayRow.children!.map(
+                (child) => _TransactionDisplayRow(
+                  child,
+                  childOnly: true,
+                ).toDataRow(
+                  columnWidths: columnWidths,
+                  currency: currency,
+                  dateFormat: dateFormat,
+                  onStatusChanged: onStatusChanged,
+                ),
+              ),
+            ];
+          })
           .toList(),
     ),
   );
@@ -2360,13 +2443,105 @@ class _TransactionTable extends StatelessWidget {
   );
 }
 
+class _TransactionDisplayRow {
+  _TransactionDisplayRow(this.transaction, {this.children, this.childOnly = false});
+  final Transaction transaction;
+  final List<Transaction>? children;
+  final bool childOnly;
+
+  bool get isChild => childOnly;
+  bool get isSplit => children != null;
+
+  DataRow toDataRow({
+    required List<double> columnWidths,
+    required NumberFormat currency,
+    required DateFormat dateFormat,
+    required ValueChanged<Transaction> onStatusChanged,
+  }) {
+    final splitPattern = RegExp(r'^Split \(\d+/\d+\)\s*');
+    final category = transaction.categoryGroup.isEmpty
+        ? transaction.category
+        : '${transaction.categoryGroup}: ${transaction.category}';
+    return DataRow(
+      cells: [
+        DataCell(
+          SizedBox(
+            width: columnWidths[0],
+            child: Text(isChild ? '' : dateFormat.format(transaction.date)),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[1],
+            child: Text(
+              transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[2],
+            child: Text(category, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[3],
+            child: Text(
+              transaction.memo.replaceFirst(splitPattern, ''),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[4],
+            child: Text(
+              transaction.account,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[5],
+            child: Text(
+              transaction.outflow > 0
+                  ? '-${currency.format(transaction.outflow)}'
+                  : '+${currency.format(transaction.inflow)}',
+              style: TextStyle(
+                color: transaction.outflow > 0
+                    ? const Color(0xFFD45D4C)
+                    : const Color(0xFF2D8A5F),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[6],
+            child: _TransactionStatusIcon(
+              status: transaction.cleared,
+              onPressed: () => onStatusChanged(transaction),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _TransactionStatusIcon extends StatelessWidget {
   const _TransactionStatusIcon({
     required this.status,
     required this.onPressed,
+    this.enabled = true,
   });
   final String status;
   final VoidCallback onPressed;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -2379,7 +2554,7 @@ class _TransactionStatusIcon extends StatelessWidget {
           : cleared
           ? 'Cleared - κλικ για Uncleared'
           : 'Uncleared - κλικ για Cleared',
-      onPressed: reconciled ? null : onPressed,
+      onPressed: reconciled || !enabled ? null : onPressed,
       icon: Icon(
         reconciled
             ? Icons.lock
