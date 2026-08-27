@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.14';
+const appVersion = 'v0.1.15';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -153,6 +153,8 @@ AccountType classifyAccount(String account) {
   final name = account.toLowerCase();
   if (name.contains('diners') ||
       name.contains('highlow') ||
+      name.contains('neteller') ||
+      name == '3. εμπορική' ||
       name == 'σπίτι 2' ||
       name == 'tdm900') {
     return AccountType.inactive;
