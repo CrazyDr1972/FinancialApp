@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.40';
+const appVersion = 'v0.1.41';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1545,6 +1545,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         Text(range, style: TextStyle(color: Colors.blueGrey.shade600)),
         const SizedBox(height: 16),
         Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             SizedBox(
@@ -1554,13 +1555,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 style: const TextStyle(color: Color(0xFF6B7280), fontSize: 14),
               ),
             ),
-            Expanded(
-              child: _NetWorthSummary(
-                point: selectedPoint,
-                change: change,
-                debtRatio: ratio,
-                currency: _currency,
-              ),
+            _NetWorthSummary(
+              point: selectedPoint,
+              change: change,
+              debtRatio: ratio,
+              currency: _currency,
             ),
           ],
         ),
@@ -1569,7 +1568,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 18, 18, 12),
             child: SizedBox(
-              height: 520,
+              height: math.max(520, MediaQuery.sizeOf(context).height - 360),
               width: double.infinity,
               child: LayoutBuilder(
                 builder: (context, constraints) {
