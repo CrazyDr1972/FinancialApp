@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.20';
+const appVersion = 'v0.1.21';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -261,7 +261,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
-  List<double> _columnWidths = [120, 220, 180, 180, 130, 90];
+  List<double> _columnWidths = [120, 220, 180, 220, 180, 130, 90];
   double _sidebarWidth = 300;
   Timer? _windowSaveTimer;
 
@@ -2153,9 +2153,10 @@ class _TransactionTable extends StatelessWidget {
         DataColumn(label: _columnHeader(0, 'Ημερομηνία')),
         DataColumn(label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
         DataColumn(label: _columnHeader(2, 'Κατηγορία')),
-        DataColumn(label: _columnHeader(3, 'Λογαριασμός')),
-        DataColumn(label: _columnHeader(4, 'Ποσό')),
-        DataColumn(label: _columnHeader(5, 'Κατάσταση')),
+        DataColumn(label: _columnHeader(3, 'Memo')),
+        DataColumn(label: _columnHeader(4, 'Λογαριασμός')),
+        DataColumn(label: _columnHeader(5, 'Ποσό')),
+        DataColumn(label: _columnHeader(6, 'Κατάσταση')),
       ],
       rows: transactions
           .take(250)
@@ -2194,7 +2195,7 @@ class _TransactionTable extends StatelessWidget {
                   SizedBox(
                     width: columnWidths[3],
                     child: Text(
-                      transaction.account,
+                      transaction.memo,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -2202,6 +2203,15 @@ class _TransactionTable extends StatelessWidget {
                 DataCell(
                   SizedBox(
                     width: columnWidths[4],
+                    child: Text(
+                      transaction.account,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: columnWidths[5],
                     child: Text(
                       transaction.outflow > 0
                           ? '-${currency.format(transaction.outflow)}'
@@ -2217,7 +2227,7 @@ class _TransactionTable extends StatelessWidget {
                 ),
                 DataCell(
                   SizedBox(
-                    width: columnWidths[5],
+                    width: columnWidths[6],
                     child: _TransactionStatusIcon(
                       status: transaction.cleared,
                       onPressed: () => onStatusChanged(transaction),
