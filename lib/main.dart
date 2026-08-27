@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.39';
+const appVersion = 'v0.1.40';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1925,13 +1925,6 @@ class _Navigation extends StatelessWidget {
                           )
                           .toList(),
                     ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.all(10),
-                  child: Text(
-                    'MVP • YNAB ZIP import\n$appVersion',
-                    style: TextStyle(color: Color(0xFF9FB3C8), fontSize: 12),
                   ),
                 ),
               ],
