@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.27';
+const appVersion = 'v0.1.30';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -265,7 +265,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
-  List<double> _columnWidths = [70, 50, 120, 220, 180, 220, 180, 130, 90];
+  List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 180, 130, 90];
   final Set<Transaction> _selectedTransactions = {};
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
@@ -2402,17 +2402,20 @@ class _TransactionTable extends StatelessWidget {
     return orderedIndexes.map((index) => rows[index]).toList();
   }
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: DataTable(
+  Widget build(BuildContext context) => Scrollbar(
+    thumbVisibility: false,
+    interactive: true,
+    child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
       headingRowHeight: 34,
       dataRowMinHeight: 34,
       dataRowMaxHeight: 34,
       sortColumnIndex: sortColumnIndex,
       sortAscending: sortAscending,
       columns: [
-        DataColumn(label: _columnHeader(0, 'Flag')),
-        DataColumn(label: _columnHeader(1, '')),
+        DataColumn(label: _iconColumnHeader(0, Icons.flag_outlined)),
+        DataColumn(label: _iconColumnHeader(1, Icons.image_outlined)),
         DataColumn(label: _columnHeader(2, 'Ημερομηνία')),
         DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
         DataColumn(label: _columnHeader(4, 'Κατηγορία')),
@@ -2465,6 +2468,7 @@ class _TransactionTable extends StatelessWidget {
             ];
           })
           .toList(),
+      ),
     ),
   );
 
@@ -2484,7 +2488,16 @@ class _TransactionTable extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
           const SizedBox(width: 6),
           if (sortColumnIndex == index)
             Icon(
@@ -2492,6 +2505,26 @@ class _TransactionTable extends StatelessWidget {
               size: 20,
               color: const Color(0xFF52606D),
             ),
+          Container(width: 2, color: const Color(0xFFD8E0E8)),
+        ],
+      ),
+    ),
+  );
+
+  Widget _iconColumnHeader(int index, IconData icon) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onHorizontalDragUpdate: (details) => onColumnWidthChanged(
+      index,
+      columnWidths[index] + details.delta.dx,
+    ),
+    child: SizedBox(
+      height: 34,
+      width: columnWidths[index],
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(child: Icon(icon, size: 17, color: const Color(0xFF52606D))),
           Container(width: 2, color: const Color(0xFFD8E0E8)),
         ],
       ),
