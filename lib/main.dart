@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -13,7 +14,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.9';
+const appVersion = 'v0.1.13';
+const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -135,7 +137,6 @@ enum AccountType {
   investment,
   asset,
   personalDebts,
-  loan,
   inactive,
 }
 
@@ -145,7 +146,6 @@ const accountTypeOrder = [
   AccountType.investment,
   AccountType.asset,
   AccountType.personalDebts,
-  AccountType.loan,
   AccountType.inactive,
 ];
 
@@ -158,7 +158,6 @@ AccountType classifyAccount(String account) {
     return AccountType.inactive;
   }
   if (name == 'δανεικά') return AccountType.personalDebts;
-  if (name.contains('δάνειο')) return AccountType.loan;
   if (name.contains('visa')) {
     return AccountType.creditCard;
   }
@@ -180,7 +179,6 @@ String accountTypeLabel(AccountType type) => switch (type) {
   AccountType.investment => 'Επενδύσεις',
   AccountType.asset => 'Περιουσιακά Στοιχεία',
   AccountType.personalDebts => 'Δανεικά & Ιδιωτικές Οφειλές',
-  AccountType.loan => 'Δάνεια / Υποχρεώσεις',
   AccountType.inactive => 'Μη Ενεργά',
 };
 
@@ -190,7 +188,6 @@ IconData accountTypeIcon(AccountType type) => switch (type) {
   AccountType.investment => Icons.trending_up,
   AccountType.asset => Icons.home_work_outlined,
   AccountType.personalDebts => Icons.people_outline,
-  AccountType.loan => Icons.request_quote_outlined,
   AccountType.inactive => Icons.archive_outlined,
 };
 
@@ -200,7 +197,6 @@ Color accountTypeColor(AccountType type) => switch (type) {
   AccountType.investment => const Color(0xFF356AE6),
   AccountType.asset => const Color(0xFF8A5A44),
   AccountType.personalDebts => const Color(0xFF8A63B8),
-  AccountType.loan => const Color(0xFFB5533C),
   AccountType.inactive => const Color(0xFF718096),
 };
 
@@ -248,6 +244,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int _reportMode = 0;
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
+  bool _futureTransactionsCollapsed = false;
   double _sidebarWidth = 300;
   Timer? _windowSaveTimer;
 
@@ -319,6 +316,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             _collapsedGroups.add(type);
           }
         }
+        _futureTransactionsCollapsed =
+            preferences.getBool('future-transactions-collapsed') ?? false;
       });
     } catch (_) {
       // Persistence is optional in test runners without native plugins.
@@ -338,6 +337,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       'account-group-collapsed-${type.name}',
       collapsed,
     );
+  }
+
+  Future<void> _setFutureTransactionsCollapsed(bool collapsed) async {
+    setState(() => _futureTransactionsCollapsed = collapsed);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool('future-transactions-collapsed', collapsed);
   }
 
   @override
@@ -520,14 +525,37 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     try {
       final file = await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['zip'],
       );
       if (file == null) {
         setState(() => _loading = false);
         return;
       }
-      final text = utf8.decode(await file.readAsBytes());
+      final text = _registerFromZip(await file.readAsBytes());
       final imported = _parseRegister(text);
+      final preferences = await SharedPreferences.getInstance();
+      final importedExportDate = _exportDateFromFileName(file.name);
+      final currentExportDate = _parseExportDate(
+        preferences.getString('imported-export-date') ?? seedExportDate,
+      );
+      if (importedExportDate != null &&
+          currentExportDate != null &&
+          importedExportDate.isBefore(currentExportDate)) {
+        setState(() {
+          _loading = false;
+          _error =
+              'Το ZIP είναι παλαιότερο από τα ήδη φορτωμένα δεδομένα '
+              '(${_formatExportDate(currentExportDate)}). Δεν έγινε αντικατάσταση.';
+        });
+        return;
+      }
+      await preferences.setString('imported-register-csv', text);
+      if (importedExportDate != null) {
+        await preferences.setString(
+          'imported-export-date',
+          _formatExportDate(importedExportDate),
+        );
+      }
       setState(() {
         _transactions = imported;
         _loading = false;
@@ -537,21 +565,68 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     } catch (error) {
       setState(() {
         _loading = false;
-        _error = 'Αποτυχία εισαγωγής: $error';
+        _error = 'Αποτυχία εισαγωγής ZIP: $error';
       });
     }
   }
 
   Future<void> _loadSeedRegister() async {
     try {
-      final text = await rootBundle.loadString('data/private/register.csv');
+      final seedText = await rootBundle.loadString('data/private/register.csv');
+      final seedImported = _parseRegister(seedText);
+      if (!mounted) return;
+      setState(() => _transactions = seedImported);
+
+      String? text;
+      try {
+        final preferences = await SharedPreferences.getInstance();
+        text = preferences.getString('imported-register-csv');
+      } catch (_) {
+        // Native persistence is unavailable in widget tests and web fallback.
+      }
+      if (text == null) return;
       final imported = _parseRegister(text);
       if (!mounted) return;
       setState(() => _transactions = imported);
-    } catch (_) {
+    } catch (error) {
+      debugPrint('Seed register load failed: $error');
       // The private seed is intentionally optional for other machines.
     }
   }
+
+  String _registerFromZip(List<int> bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final register = archive.files.where((file) {
+      return file.isFile &&
+          file.name.toLowerCase().endsWith('register.csv');
+    }).firstOrNull;
+    if (register == null) {
+      throw const FormatException('Το ZIP δεν περιέχει Register.csv.');
+    }
+    return utf8.decode(register.content);
+  }
+
+  DateTime? _exportDateFromFileName(String fileName) {
+    final match = RegExp(
+      r'as of (\d{4}-\d{2}-\d{2}) (\d{2})-(\d{2})',
+      caseSensitive: false,
+    ).firstMatch(fileName);
+    if (match == null) return null;
+    return _parseExportDate(
+      '${match.group(1)} ${match.group(2)}:${match.group(3)}',
+    );
+  }
+
+  DateTime? _parseExportDate(String value) {
+    try {
+      return DateFormat('yyyy-MM-dd HH:mm').parseStrict(value);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatExportDate(DateTime value) =>
+      DateFormat('yyyy-MM-dd HH:mm').format(value);
 
   List<Transaction> _parseRegister(String rawText) {
     final text = rawText.replaceFirst('\uFEFF', '');
@@ -801,6 +876,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   Widget _buildTransactions() {
     final transactions = _filteredTransactions;
+    final futureTransactions = transactions
+        .where((transaction) => transaction.date.isAfter(DateTime.now()))
+        .toList();
+    final pastTransactions = transactions
+        .where((transaction) => !transaction.date.isAfter(DateTime.now()))
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -849,18 +930,40 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         const SizedBox(height: 14),
         if (_error != null) _ErrorBanner(message: _error!),
         const SizedBox(height: 10),
-        Card(
-          child: transactions.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(30),
-                  child: Center(child: Text('Δεν βρέθηκαν συναλλαγές.')),
-                )
-              : _TransactionTable(
-                  transactions: transactions,
-                  currency: _currency,
-                  dateFormat: _dateFormat,
-                ),
-        ),
+        if (transactions.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(30),
+              child: Center(child: Text('Δεν βρέθηκαν συναλλαγές.')),
+            ),
+          ),
+        if (futureTransactions.isNotEmpty) ...[
+          _TransactionGroupHeader(
+            title: 'Μελλοντικές συναλλαγές',
+            count: futureTransactions.length,
+            collapsed: _futureTransactionsCollapsed,
+            onToggle: () => _setFutureTransactionsCollapsed(
+              !_futureTransactionsCollapsed,
+            ),
+          ),
+          if (!_futureTransactionsCollapsed)
+            Card(
+              child: _TransactionTable(
+                transactions: futureTransactions,
+                currency: _currency,
+                dateFormat: _dateFormat,
+              ),
+            ),
+          const SizedBox(height: 12),
+        ],
+        if (pastTransactions.isNotEmpty)
+          Card(
+            child: _TransactionTable(
+              transactions: pastTransactions,
+              currency: _currency,
+              dateFormat: _dateFormat,
+            ),
+          ),
         if (transactions.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -1343,7 +1446,7 @@ class _Navigation extends StatelessWidget {
                 const Padding(
                   padding: EdgeInsets.all(10),
                   child: Text(
-                    'MVP • YNAB CSV import\n$appVersion',
+                    'MVP • YNAB ZIP import\n$appVersion',
                     style: TextStyle(color: Color(0xFF9FB3C8), fontSize: 12),
                   ),
                 ),
@@ -1559,7 +1662,7 @@ class _Header extends StatelessWidget {
             ),
             SizedBox(height: 6),
             Text(
-              'Εισήγαγε το Register.csv από το YNAB για να ξεκινήσεις.',
+              'Εισήγαγε το ZIP export από το YNAB για να ξεκινήσεις.',
               style: TextStyle(color: Color(0xFFB8C7D8)),
             ),
           ],
@@ -1576,7 +1679,7 @@ class _Header extends StatelessWidget {
                   ),
                 )
               : const Icon(Icons.upload_file),
-          label: Text(loading ? 'Εισαγωγή...' : 'Import CSV'),
+          label: Text(loading ? 'Εισαγωγή...' : 'Import ZIP'),
         ),
       ],
     ),
@@ -1848,6 +1951,37 @@ class _TransactionTable extends StatelessWidget {
   );
 }
 
+class _TransactionGroupHeader extends StatelessWidget {
+  const _TransactionGroupHeader({
+    required this.title,
+    required this.count,
+    required this.collapsed,
+    required this.onToggle,
+  });
+  final String title;
+  final int count;
+  final bool collapsed;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: const Color(0xFFF3F0E7),
+    child: ListTile(
+      dense: true,
+      leading: Icon(
+        collapsed ? Icons.chevron_right : Icons.expand_more,
+        color: const Color(0xFF6B6254),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text('$count συναλλαγές'),
+      onTap: onToggle,
+    ),
+  );
+}
+
 class _CategoryBar extends StatelessWidget {
   const _CategoryBar({
     required this.name,
@@ -1909,7 +2043,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Ξεκίνα εισάγοντας το Register.csv export από το YNAB.',
+              'Ξεκίνα εισάγοντας το ZIP export από το YNAB.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.blueGrey.shade600),
             ),
@@ -1917,7 +2051,7 @@ class _EmptyState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onImport,
               icon: const Icon(Icons.upload_file),
-              label: const Text('Εισαγωγή Register.csv'),
+              label: const Text('Εισαγωγή ZIP export'),
             ),
           ],
         ),

@@ -4,7 +4,7 @@ A small personal finance application for desktop, web, and mobile.
 
 ## Development
 
-The first version will focus on importing YNAB CSV exports, reviewing
+The first version will focus on importing YNAB ZIP exports, reviewing
 transactions, and reporting balances and net worth. Banking integrations and
 automatic synchronisation are intentionally out of scope for the initial MVP.
 
