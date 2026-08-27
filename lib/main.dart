@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.41';
+const appVersion = 'v0.1.42';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1723,7 +1723,7 @@ class _NetWorthChartPainter extends CustomPainter {
     if (points.isEmpty) return;
     const left = 58.0;
     const top = 22.0;
-    const bottom = 54.0;
+    const bottom = 68.0;
     final chartWidth = size.width - left;
     final chartHeight = size.height - top - bottom;
     final maximum = points
@@ -1788,7 +1788,7 @@ class _NetWorthChartPainter extends CustomPainter {
       final labelInterval = points.length > 60 ? 6 : 3;
       if (i % labelInterval == 0 || i == points.length - 1) {
         canvas.save();
-        canvas.translate(x - 4, top + chartHeight + 8);
+        canvas.translate(x - 4, top + chartHeight + 18);
         canvas.rotate(-math.pi / 4);
         _drawText(
           canvas,
