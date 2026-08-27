@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.17';
+const appVersion = 'v0.1.18';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -799,7 +799,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   Widget _buildContent(bool wide) {
-    final showHeader = !(_section == 2 && _reportMode == 1);
+    final showHeader = !(_section == 2 && _reportMode == 1) &&
+        !(_section == 1 && _selectedAccount != null);
     return CustomScrollView(
       slivers: [
         if (showHeader)
@@ -889,6 +890,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   Widget _buildTransactions() {
+    if (_selectedAccount != null) return _buildAccountPage();
     final transactions = _filteredTransactions;
     final futureTransactions = transactions
         .where((transaction) => transaction.date.isAfter(DateTime.now()))
@@ -984,6 +986,176 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             child: Text(
               '${transactions.length} από ${_transactions.length} συναλλαγών',
               style: TextStyle(color: Colors.blueGrey.shade600),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAccountPage() {
+    final account = _selectedAccount!;
+    final transactions = _filteredTransactions;
+    final current = transactions
+        .where((transaction) => !transaction.date.isAfter(DateTime.now()))
+        .toList();
+    final future = transactions
+        .where((transaction) => transaction.date.isAfter(DateTime.now()))
+        .toList();
+    final cleared = current
+        .where(
+          (transaction) =>
+              transaction.cleared.toLowerCase() == 'cleared' ||
+              transaction.cleared.toLowerCase() == 'reconciled',
+        )
+        .fold<double>(0, (sum, transaction) => sum + transaction.net);
+    final working = current.fold<double>(
+      0,
+      (sum, transaction) => sum + transaction.net,
+    );
+    final uncleared = working - cleared;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        account,
+                        style: const TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF102A43),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.star_border, color: Colors.blueGrey.shade400),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    accountTypeLabel(classifyAccount(account)),
+                    style: TextStyle(color: Colors.blueGrey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Επεξεργασία'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: () {},
+              child: const Text('Συμφωνία'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Row(
+              children: [
+                _AccountBalanceMetric(
+                  label: 'Cleared Balance',
+                  value: _currency.format(cleared),
+                ),
+                const _BalanceOperator(operator: '+'),
+                _AccountBalanceMetric(
+                  label: 'Uncleared Balance',
+                  value: _currency.format(uncleared),
+                ),
+                const _BalanceOperator(operator: '='),
+                _AccountBalanceMetric(
+                  label: 'Working Balance',
+                  value: _currency.format(working),
+                  emphasized: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            FilledButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.add),
+              label: const Text('Προσθήκη συναλλαγής'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _importRegister,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import ZIP'),
+            ),
+            TextButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.undo),
+              label: const Text('Undo'),
+            ),
+            TextButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.redo),
+              label: const Text('Redo'),
+            ),
+            SizedBox(
+              width: 250,
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Αναζήτηση λογαριασμού...',
+                  isDense: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (_error != null) _ErrorBanner(message: _error!),
+        if (future.isNotEmpty) ...[
+          _TransactionGroupHeader(
+            title: 'Μελλοντικές συναλλαγές',
+            count: future.length,
+            collapsed: _futureTransactionsCollapsed,
+            onToggle: () => _setFutureTransactionsCollapsed(
+              !_futureTransactionsCollapsed,
+            ),
+          ),
+          if (!_futureTransactionsCollapsed)
+            Card(
+              child: _TransactionTable(
+                transactions: future,
+                currency: _currency,
+                dateFormat: _dateFormat,
+              ),
+            ),
+          const SizedBox(height: 12),
+        ],
+        if (current.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(30),
+              child: Center(child: Text('Δεν βρέθηκαν συναλλαγές.')),
+            ),
+          )
+        else
+          Card(
+            child: _TransactionTable(
+              transactions: current,
+              currency: _currency,
+              dateFormat: _dateFormat,
             ),
           ),
       ],
@@ -1992,6 +2164,50 @@ class _TransactionGroupHeader extends StatelessWidget {
       ),
       subtitle: Text('$count συναλλαγές'),
       onTap: onToggle,
+    ),
+  );
+}
+
+class _AccountBalanceMetric extends StatelessWidget {
+  const _AccountBalanceMetric({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
+  final String label;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(color: Colors.blueGrey.shade600)),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: emphasized ? 20 : 17,
+            fontWeight: FontWeight.w800,
+            color: emphasized ? const Color(0xFF159A9C) : const Color(0xFF102A43),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BalanceOperator extends StatelessWidget {
+  const _BalanceOperator({required this.operator});
+  final String operator;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: Text(
+      operator,
+      style: TextStyle(fontSize: 20, color: Colors.blueGrey.shade400),
     ),
   );
 }
