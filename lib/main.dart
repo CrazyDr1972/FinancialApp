@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.32';
+const appVersion = 'v0.1.33';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -514,6 +514,37 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         _collapsedSplits.add(key);
       } else {
         _collapsedSplits.remove(key);
+      }
+    });
+  }
+
+  Set<String> get _splitKeys {
+    final pattern = RegExp(r'^Split \(\d+/\d+\)\s*(.*)$');
+    final counts = <String, int>{};
+    for (final transaction in _transactions) {
+      final match = pattern.firstMatch(transaction.memo);
+      if (match == null) continue;
+      final baseMemo = match.group(1)!.trim();
+      final key =
+          '${transaction.date.year}-${transaction.date.month}-'
+          '${transaction.date.day}|${transaction.account}|$baseMemo';
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts.entries
+        .where((entry) => entry.value > 1)
+        .map((entry) => entry.key)
+        .toSet();
+  }
+
+  void _toggleAllSplits() {
+    final keys = _splitKeys;
+    if (keys.isEmpty) return;
+    final collapse = keys.any((key) => !_collapsedSplits.contains(key));
+    setState(() {
+      if (collapse) {
+        _collapsedSplits.addAll(keys);
+      } else {
+        _collapsedSplits.removeAll(keys);
       }
     });
   }
@@ -1309,6 +1340,21 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onPressed: null,
               icon: const Icon(Icons.redo),
               label: const Text('Redo'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _splitKeys.isEmpty ? null : _toggleAllSplits,
+              icon: Icon(
+                _splitKeys.isNotEmpty &&
+                        _splitKeys.every(_collapsedSplits.contains)
+                    ? Icons.unfold_more
+                    : Icons.unfold_less,
+              ),
+              label: Text(
+                _splitKeys.isNotEmpty &&
+                        _splitKeys.every(_collapsedSplits.contains)
+                    ? 'Expand splits'
+                    : 'Collapse splits',
+              ),
             ),
             SizedBox(
               width: 250,
@@ -2369,6 +2415,14 @@ class _TransactionTable extends StatelessWidget {
         continue;
       }
       final first = children.first;
+      var parentMemo = '';
+      for (final child in children) {
+        final memo = child.memo.replaceFirst(splitPattern, '').trim();
+        if (memo.isNotEmpty) {
+          parentMemo = memo;
+          break;
+        }
+      }
       final totalInflow = children.fold<double>(
         0,
         (sum, transaction) => sum + transaction.inflow,
@@ -2384,7 +2438,7 @@ class _TransactionTable extends StatelessWidget {
         payee: first.payee,
         category: 'Split (Multiple Categories)...',
         categoryGroup: '',
-        memo: first.memo.replaceFirst(splitPattern, '').trim(),
+        memo: parentMemo,
         outflow: totalOutflow,
         inflow: totalInflow,
         cleared: children.every((item) => item.cleared == 'Reconciled')
@@ -2594,11 +2648,14 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[1],
-            child: IconButton(
-              tooltip: 'Εικόνα συναλλαγής',
-              padding: EdgeInsets.zero,
-              onPressed: () {},
-              icon: const Icon(Icons.image_outlined, size: 17),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                tooltip: 'Εικόνα συναλλαγής',
+                padding: EdgeInsets.zero,
+                onPressed: () {},
+                icon: const Icon(Icons.image_outlined, size: 17),
+              ),
             ),
           ),
         ),
