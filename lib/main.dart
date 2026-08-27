@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.21';
+const appVersion = 'v0.1.23';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -262,6 +262,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
   List<double> _columnWidths = [120, 220, 180, 220, 180, 130, 90];
+  int _transactionSortColumn = 0;
+  bool _transactionSortAscending = false;
   double _sidebarWidth = 300;
   Timer? _windowSaveTimer;
 
@@ -413,7 +415,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   List<Transaction> get _filteredTransactions {
     final query = _searchController.text.trim().toLowerCase();
-    return _transactions.where((transaction) {
+    final filtered = _transactions.where((transaction) {
       final category = transaction.categoryGroup.isEmpty
           ? transaction.category
           : '${transaction.categoryGroup}: ${transaction.category}';
@@ -428,6 +430,51 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           _selectedCategory == null || category == _selectedCategory;
       return matchesSearch && matchesAccount && matchesCategory;
     }).toList();
+    filtered.sort((first, second) {
+      final comparison = _compareTransactions(
+        first,
+        second,
+        _transactionSortColumn,
+      );
+      return _transactionSortAscending ? comparison : -comparison;
+    });
+    return filtered;
+  }
+
+  int _compareTransactions(Transaction first, Transaction second, int column) {
+    int compareText(String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
+    switch (column) {
+      case 0:
+        return first.date.compareTo(second.date);
+      case 1:
+        return compareText(first.payee, second.payee);
+      case 2:
+        return compareText(first.category, second.category);
+      case 3:
+        return compareText(first.memo, second.memo);
+      case 4:
+        return compareText(first.account, second.account);
+      case 5:
+        return first.net.compareTo(second.net);
+      case 6:
+        int statusRank(String status) => switch (status.toLowerCase()) {
+          'uncleared' => 0,
+          'cleared' => 1,
+          'reconciled' => 2,
+          _ => -1,
+        };
+        return statusRank(first.cleared).compareTo(statusRank(second.cleared));
+      default:
+        return 0;
+    }
+  }
+
+  void _sortTransactions(int column, bool ascending) {
+    setState(() {
+      _transactionSortColumn = column;
+      _transactionSortAscending = ascending;
+    });
   }
 
   double get _totalInflow =>
@@ -610,8 +657,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       setState(() {
         _transactions = imported;
         _loading = false;
-        _selectedAccount = null;
+        _selectedAccount = _firstAccount(imported);
         _selectedCategory = null;
+        _section = 1;
       });
     } catch (error) {
       setState(() {
@@ -626,7 +674,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       final seedText = await rootBundle.loadString('data/private/register.csv');
       final seedImported = _parseRegister(seedText);
       if (!mounted) return;
-      setState(() => _transactions = seedImported);
+      setState(() {
+        _transactions = seedImported;
+        _selectedAccount = _firstAccount(seedImported);
+        _section = 1;
+      });
 
       String? text;
       try {
@@ -638,7 +690,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       if (text == null) return;
       final imported = _parseRegister(text);
       if (!mounted) return;
-      setState(() => _transactions = imported);
+      setState(() {
+        _transactions = imported;
+        _selectedAccount = _firstAccount(imported);
+        _section = 1;
+      });
     } catch (error) {
       debugPrint('Seed register load failed: $error');
       // The private seed is intentionally optional for other machines.
@@ -655,6 +711,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       throw const FormatException('Το ZIP δεν περιέχει Register.csv.');
     }
     return utf8.decode(register.content);
+  }
+
+  String? _firstAccount(List<Transaction> transactions) {
+    final accounts = transactions.map((t) => t.account).toSet().toList()
+      ..sort((first, second) {
+        final firstGroup = accountTypeOrder.indexOf(classifyAccount(first));
+        final secondGroup = accountTypeOrder.indexOf(classifyAccount(second));
+        if (firstGroup != secondGroup) return firstGroup.compareTo(secondGroup);
+        return _compareAccounts(first, second);
+      });
+    return accounts.isEmpty ? null : accounts.first;
   }
 
   DateTime? _exportDateFromFileName(String fileName) {
@@ -1020,6 +1087,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onStatusChanged: _toggleTransactionCleared,
                 columnWidths: _columnWidths,
                 onColumnWidthChanged: _setColumnWidth,
+                sortColumnIndex: _transactionSortColumn,
+                sortAscending: _transactionSortAscending,
+                onSort: _sortTransactions,
               ),
             ),
           const SizedBox(height: 12),
@@ -1033,6 +1103,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onStatusChanged: _toggleTransactionCleared,
               columnWidths: _columnWidths,
               onColumnWidthChanged: _setColumnWidth,
+              sortColumnIndex: _transactionSortColumn,
+              sortAscending: _transactionSortAscending,
+              onSort: _sortTransactions,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1201,6 +1274,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onStatusChanged: _toggleTransactionCleared,
                 columnWidths: _columnWidths,
                 onColumnWidthChanged: _setColumnWidth,
+                sortColumnIndex: _transactionSortColumn,
+                sortAscending: _transactionSortAscending,
+                onSort: _sortTransactions,
               ),
             ),
           const SizedBox(height: 12),
@@ -1221,6 +1297,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onStatusChanged: _toggleTransactionCleared,
               columnWidths: _columnWidths,
               onColumnWidthChanged: _setColumnWidth,
+              sortColumnIndex: _transactionSortColumn,
+              sortAscending: _transactionSortAscending,
+              onSort: _sortTransactions,
             ),
           ),
       ],
@@ -2138,6 +2217,9 @@ class _TransactionTable extends StatelessWidget {
     required this.onStatusChanged,
     required this.columnWidths,
     required this.onColumnWidthChanged,
+    required this.sortColumnIndex,
+    required this.sortAscending,
+    required this.onSort,
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
@@ -2145,18 +2227,23 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onStatusChanged;
   final List<double> columnWidths;
   final void Function(int index, double width) onColumnWidthChanged;
+  final int sortColumnIndex;
+  final bool sortAscending;
+  final void Function(int columnIndex, bool ascending) onSort;
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
     child: DataTable(
+      sortColumnIndex: sortColumnIndex,
+      sortAscending: sortAscending,
       columns: [
-        DataColumn(label: _columnHeader(0, 'Ημερομηνία')),
-        DataColumn(label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
-        DataColumn(label: _columnHeader(2, 'Κατηγορία')),
-        DataColumn(label: _columnHeader(3, 'Memo')),
-        DataColumn(label: _columnHeader(4, 'Λογαριασμός')),
-        DataColumn(label: _columnHeader(5, 'Ποσό')),
-        DataColumn(label: _columnHeader(6, 'Κατάσταση')),
+        DataColumn(onSort: onSort, label: _columnHeader(0, 'Ημερομηνία')),
+        DataColumn(onSort: onSort, label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
+        DataColumn(onSort: onSort, label: _columnHeader(2, 'Κατηγορία')),
+        DataColumn(onSort: onSort, label: _columnHeader(3, 'Memo')),
+        DataColumn(onSort: onSort, label: _columnHeader(4, 'Λογαριασμός')),
+        DataColumn(onSort: onSort, label: _columnHeader(5, 'Ποσό')),
+        DataColumn(onSort: onSort, label: _columnHeader(6, 'Κατάσταση')),
       ],
       rows: transactions
           .take(250)
