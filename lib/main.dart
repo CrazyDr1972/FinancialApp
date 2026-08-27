@@ -13,7 +13,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.8';
+const appVersion = 'v0.1.9';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -494,18 +494,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       var assets = 0.0;
       var debts = 0.0;
       for (final entry in balances.entries) {
-        switch (classifyAccount(entry.key)) {
-          case AccountType.liquid:
-          case AccountType.investment:
-          case AccountType.asset:
-            assets += math.max(0, entry.value);
-          case AccountType.creditCard:
-          case AccountType.loan:
-            debts += math.max(0, -entry.value);
-          case AccountType.personalDebts:
-          case AccountType.inactive:
-            break;
-        }
+        // YNAB's All Accounts Net Worth includes receivables and inactive
+        // accounts too; the sign of the reconstructed balance determines
+        // whether it is an asset or a debt.
+        assets += math.max(0, entry.value);
+        debts += math.max(0, -entry.value);
       }
       points.add(
         NetWorthPoint(
