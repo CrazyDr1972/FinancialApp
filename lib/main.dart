@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.30';
+const appVersion = 'v0.1.31';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2520,12 +2520,14 @@ class _TransactionTable extends StatelessWidget {
     child: SizedBox(
       height: 34,
       width: columnWidths[index],
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Center(child: Icon(icon, size: 17, color: const Color(0xFF52606D))),
-          Container(width: 2, color: const Color(0xFFD8E0E8)),
+          Icon(icon, size: 17, color: const Color(0xFF52606D)),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(width: 2, color: const Color(0xFFD8E0E8)),
+          ),
         ],
       ),
     ),
