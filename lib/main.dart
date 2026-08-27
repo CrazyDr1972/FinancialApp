@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.25';
+const appVersion = 'v0.1.26';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -95,6 +95,7 @@ class FinancialApp extends StatelessWidget {
 class Transaction {
   const Transaction({
     required this.account,
+    required this.flag,
     required this.date,
     required this.payee,
     required this.category,
@@ -106,6 +107,7 @@ class Transaction {
   });
 
   final String account;
+  final String flag;
   final DateTime date;
   final String payee;
   final String category;
@@ -117,7 +119,7 @@ class Transaction {
 
   double get net => inflow - outflow;
 
-  Transaction copyWith({String? cleared}) => Transaction(
+  Transaction copyWith({String? cleared, String? flag}) => Transaction(
     account: account,
     date: date,
     payee: payee,
@@ -127,6 +129,7 @@ class Transaction {
     outflow: outflow,
     inflow: inflow,
     cleared: cleared ?? this.cleared,
+    flag: flag ?? this.flag,
   );
 }
 
@@ -262,7 +265,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
-  List<double> _columnWidths = [120, 220, 180, 220, 180, 130, 90];
+  List<double> _columnWidths = [70, 50, 120, 220, 180, 220, 180, 130, 90];
+  final Set<Transaction> _selectedTransactions = {};
+  final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
   double _sidebarWidth = 300;
@@ -446,19 +451,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     int compareText(String a, String b) =>
         a.toLowerCase().compareTo(b.toLowerCase());
     switch (column) {
-      case 0:
-        return first.date.compareTo(second.date);
-      case 1:
-        return compareText(first.payee, second.payee);
       case 2:
-        return compareText(first.category, second.category);
+        return first.date.compareTo(second.date);
       case 3:
-        return compareText(first.memo, second.memo);
+        return compareText(first.payee, second.payee);
       case 4:
-        return compareText(first.account, second.account);
+        return compareText(first.category, second.category);
       case 5:
-        return first.net.compareTo(second.net);
+        return compareText(first.memo, second.memo);
       case 6:
+        return compareText(first.account, second.account);
+      case 7:
+        return first.net.compareTo(second.net);
+      case 8:
         int statusRank(String status) => switch (status.toLowerCase()) {
           'uncleared' => 0,
           'cleared' => 1,
@@ -476,6 +481,48 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       _transactionSortColumn = column;
       _transactionSortAscending = ascending;
     });
+  }
+
+  void _setTransactionSelected(Transaction transaction, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedTransactions.add(transaction);
+      } else {
+        _selectedTransactions.remove(transaction);
+      }
+    });
+  }
+
+  void _setSplitSelected(
+    List<Transaction> transactions,
+    bool selected,
+  ) {
+    setState(() {
+      if (selected) {
+        _selectedTransactions.addAll(transactions);
+      } else {
+        _selectedTransactions.removeAll(transactions);
+      }
+    });
+  }
+
+  void _setSplitCollapsed(String key, bool collapsed) {
+    setState(() {
+      if (collapsed) {
+        _collapsedSplits.add(key);
+      } else {
+        _collapsedSplits.remove(key);
+      }
+    });
+  }
+
+  void _cycleFlag(Transaction transaction) {
+    const flags = ['', 'Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple'];
+    final current = flags.indexOf(transaction.flag);
+    final next = flags[(current < 0 ? 0 : current + 1) % flags.length];
+    final index = _transactions.indexOf(transaction);
+    if (index < 0) return;
+    setState(() => _transactions[index] = transaction.copyWith(flag: next));
   }
 
   double get _totalInflow =>
@@ -784,6 +831,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       imported.add(
         Transaction(
           account: value(row, 'Account'),
+          flag: value(row, 'Flag'),
           date: date,
           payee: value(row, 'Payee'),
           category: value(row, 'Category'),
@@ -1091,6 +1139,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 sortColumnIndex: _transactionSortColumn,
                 sortAscending: _transactionSortAscending,
                 onSort: _sortTransactions,
+                selectedTransactions: _selectedTransactions,
+                onTransactionSelected: _setTransactionSelected,
+                onSplitSelected: _setSplitSelected,
+                onFlagPressed: _cycleFlag,
+                collapsedSplits: _collapsedSplits,
+                onSplitToggled: _setSplitCollapsed,
               ),
             ),
           const SizedBox(height: 12),
@@ -1107,6 +1161,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               sortColumnIndex: _transactionSortColumn,
               sortAscending: _transactionSortAscending,
               onSort: _sortTransactions,
+              selectedTransactions: _selectedTransactions,
+              onTransactionSelected: _setTransactionSelected,
+              onSplitSelected: _setSplitSelected,
+              onFlagPressed: _cycleFlag,
+              collapsedSplits: _collapsedSplits,
+              onSplitToggled: _setSplitCollapsed,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1278,6 +1338,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 sortColumnIndex: _transactionSortColumn,
                 sortAscending: _transactionSortAscending,
                 onSort: _sortTransactions,
+                selectedTransactions: _selectedTransactions,
+                onTransactionSelected: _setTransactionSelected,
+                onSplitSelected: _setSplitSelected,
+                onFlagPressed: _cycleFlag,
+                collapsedSplits: _collapsedSplits,
+                onSplitToggled: _setSplitCollapsed,
               ),
             ),
           const SizedBox(height: 12),
@@ -1301,6 +1367,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               sortColumnIndex: _transactionSortColumn,
               sortAscending: _transactionSortAscending,
               onSort: _sortTransactions,
+              selectedTransactions: _selectedTransactions,
+              onTransactionSelected: _setTransactionSelected,
+              onSplitSelected: _setSplitSelected,
+              onFlagPressed: _cycleFlag,
+              collapsedSplits: _collapsedSplits,
+              onSplitToggled: _setSplitCollapsed,
             ),
           ),
       ],
@@ -2221,6 +2293,12 @@ class _TransactionTable extends StatelessWidget {
     required this.sortColumnIndex,
     required this.sortAscending,
     required this.onSort,
+    required this.selectedTransactions,
+    required this.onTransactionSelected,
+    required this.onSplitSelected,
+    required this.onFlagPressed,
+    required this.collapsedSplits,
+    required this.onSplitToggled,
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
@@ -2231,6 +2309,14 @@ class _TransactionTable extends StatelessWidget {
   final int sortColumnIndex;
   final bool sortAscending;
   final void Function(int columnIndex, bool ascending) onSort;
+  final Set<Transaction> selectedTransactions;
+  final void Function(Transaction transaction, bool selected)
+  onTransactionSelected;
+  final void Function(List<Transaction> transactions, bool selected)
+  onSplitSelected;
+  final ValueChanged<Transaction> onFlagPressed;
+  final Set<String> collapsedSplits;
+  final void Function(String key, bool collapsed) onSplitToggled;
 
   List<_TransactionDisplayRow> _displayRows() {
     final rows = <_TransactionDisplayRow>[];
@@ -2275,6 +2361,7 @@ class _TransactionTable extends StatelessWidget {
       );
       final parent = Transaction(
         account: first.account,
+        flag: first.flag,
         date: first.date,
         payee: first.payee,
         category: 'Split (Multiple Categories)...',
@@ -2288,7 +2375,14 @@ class _TransactionTable extends StatelessWidget {
             ? 'Cleared'
             : 'Uncleared',
       );
-      rows.add(_TransactionDisplayRow(parent, children: children));
+      rows.add(
+        _TransactionDisplayRow(
+          parent,
+          children: children,
+          splitKey: key,
+          collapsed: collapsedSplits.contains(key),
+        ),
+      );
       rowOrders.add(splitFirstOrder[key]!);
     }
     final orderedIndexes = List.generate(rows.length, (index) => index)
@@ -2299,102 +2393,46 @@ class _TransactionTable extends StatelessWidget {
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
     child: DataTable(
+      headingRowHeight: 34,
+      dataRowMinHeight: 34,
+      dataRowMaxHeight: 34,
       sortColumnIndex: sortColumnIndex,
       sortAscending: sortAscending,
       columns: [
-        DataColumn(label: _columnHeader(0, 'Ημερομηνία')),
-        DataColumn(label: _columnHeader(1, 'Πληρωτής / Έμπορος')),
-        DataColumn(label: _columnHeader(2, 'Κατηγορία')),
-        DataColumn(label: _columnHeader(3, 'Memo')),
-        DataColumn(label: _columnHeader(4, 'Λογαριασμός')),
-        DataColumn(label: _columnHeader(5, 'Ποσό')),
-        DataColumn(label: _columnHeader(6, 'Κατάσταση')),
+        DataColumn(label: _columnHeader(0, 'Flag')),
+        DataColumn(label: _columnHeader(1, '')),
+        DataColumn(label: _columnHeader(2, 'Ημερομηνία')),
+        DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
+        DataColumn(label: _columnHeader(4, 'Κατηγορία')),
+        DataColumn(label: _columnHeader(5, 'Memo')),
+        DataColumn(label: _columnHeader(6, 'Λογαριασμός')),
+        DataColumn(label: _columnHeader(7, 'Ποσό')),
+        DataColumn(label: _columnHeader(8, 'Κατάσταση')),
       ],
       rows: _displayRows().expand((displayRow) {
-            final transaction = displayRow.transaction;
-            final cells = DataRow(
-              cells: [
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[0],
-                    child: Text(
-                      displayRow.isChild
-                          ? ''
-                          : dateFormat.format(transaction.date),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[1],
-                    child: Text(
-                      transaction.payee.isEmpty
-                          ? 'Χωρίς όνομα'
-                          : transaction.payee,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[2],
-                    child: Text(
-                      transaction.category.isEmpty
-                          ? 'Χωρίς κατηγορία'
-                          : transaction.category,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[3],
-                    child: Text(
-                      transaction.memo,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[4],
-                    child: Text(
-                      transaction.account,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[5],
-                    child: Text(
-                      transaction.outflow > 0
-                          ? '-${currency.format(transaction.outflow)}'
-                          : '+${currency.format(transaction.inflow)}',
-                      style: TextStyle(
-                        color: transaction.outflow > 0
-                            ? const Color(0xFFD45D4C)
-                            : const Color(0xFF2D8A5F),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: columnWidths[6],
-                    child: _TransactionStatusIcon(
-                      status: transaction.cleared,
-                      onPressed: () => onStatusChanged(transaction),
-                      enabled: !displayRow.isSplit,
-                    ),
-                  ),
-                ),
-              ],
+            final parent = displayRow.toDataRow(
+              columnWidths: columnWidths,
+              dateFormat: dateFormat,
+              currency: currency,
+              onStatusChanged: onStatusChanged,
+              onFlagPressed: onFlagPressed,
+              selected: displayRow.isSplit
+                  ? displayRow.children!.every(selectedTransactions.contains)
+                  : selectedTransactions.contains(displayRow.transaction),
+              onSelected: (selected) => displayRow.isSplit
+                  ? onSplitSelected(displayRow.children!, selected)
+                  : onTransactionSelected(displayRow.transaction, selected),
+              enabled: true,
+              onSplitToggled: displayRow.isSplit
+                  ? () => onSplitToggled(
+                      displayRow.splitKey!,
+                      !displayRow.collapsed,
+                    )
+                  : null,
             );
-            if (!displayRow.isSplit) return [cells];
+            if (!displayRow.isSplit || displayRow.collapsed) return [parent];
             return [
-              cells,
+              parent,
               ...displayRow.children!.map(
                 (child) => _TransactionDisplayRow(
                   child,
@@ -2404,6 +2442,12 @@ class _TransactionTable extends StatelessWidget {
                   currency: currency,
                   dateFormat: dateFormat,
                   onStatusChanged: onStatusChanged,
+                  onFlagPressed: onFlagPressed,
+                  selected: selectedTransactions.contains(child),
+                  onSelected: (selected) =>
+                      onTransactionSelected(child, selected),
+                  enabled: true,
+                  onSplitToggled: null,
                 ),
               ),
             ];
@@ -2423,7 +2467,7 @@ class _TransactionTable extends StatelessWidget {
       columnWidths[index] + details.delta.dx,
     ),
     child: SizedBox(
-      height: 56,
+      height: 34,
       width: columnWidths[index],
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2444,10 +2488,18 @@ class _TransactionTable extends StatelessWidget {
 }
 
 class _TransactionDisplayRow {
-  _TransactionDisplayRow(this.transaction, {this.children, this.childOnly = false});
+  _TransactionDisplayRow(
+    this.transaction, {
+    this.children,
+    this.childOnly = false,
+    this.collapsed = false,
+    this.splitKey,
+  });
   final Transaction transaction;
   final List<Transaction>? children;
   final bool childOnly;
+  final bool collapsed;
+  final String? splitKey;
 
   bool get isChild => childOnly;
   bool get isSplit => children != null;
@@ -2457,22 +2509,49 @@ class _TransactionDisplayRow {
     required NumberFormat currency,
     required DateFormat dateFormat,
     required ValueChanged<Transaction> onStatusChanged,
+    required ValueChanged<Transaction> onFlagPressed,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+    required bool enabled,
+    required VoidCallback? onSplitToggled,
   }) {
     final splitPattern = RegExp(r'^Split \(\d+/\d+\)\s*');
     final category = transaction.categoryGroup.isEmpty
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
     return DataRow(
+      selected: selected,
+      onSelectChanged: enabled ? (value) => onSelected(value ?? false) : null,
       cells: [
         DataCell(
           SizedBox(
             width: columnWidths[0],
-            child: Text(isChild ? '' : dateFormat.format(transaction.date)),
+            child: _TransactionFlagIcon(
+              flag: transaction.flag,
+              onPressed: () => onFlagPressed(transaction),
+            ),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[1],
+            child: IconButton(
+              tooltip: 'Εικόνα συναλλαγής',
+              padding: EdgeInsets.zero,
+              onPressed: () {},
+              icon: const Icon(Icons.image_outlined, size: 17),
+            ),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[2],
+            child: Text(isChild ? '' : dateFormat.format(transaction.date)),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[3],
             child: Text(
               transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
               overflow: TextOverflow.ellipsis,
@@ -2481,13 +2560,27 @@ class _TransactionDisplayRow {
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[2],
-            child: Text(category, overflow: TextOverflow.ellipsis),
+            width: columnWidths[4],
+            child: Row(
+              children: [
+                if (isSplit)
+                  GestureDetector(
+                    onTap: onSplitToggled,
+                    child: Icon(
+                      collapsed ? Icons.chevron_right : Icons.expand_more,
+                      size: 18,
+                    ),
+                  ),
+                Expanded(
+                  child: Text(category, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
           ),
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[3],
+            width: columnWidths[5],
             child: Text(
               transaction.memo.replaceFirst(splitPattern, ''),
               overflow: TextOverflow.ellipsis,
@@ -2496,7 +2589,7 @@ class _TransactionDisplayRow {
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[4],
+            width: columnWidths[6],
             child: Text(
               transaction.account,
               overflow: TextOverflow.ellipsis,
@@ -2505,7 +2598,7 @@ class _TransactionDisplayRow {
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[5],
+            width: columnWidths[7],
             child: Text(
               transaction.outflow > 0
                   ? '-${currency.format(transaction.outflow)}'
@@ -2521,14 +2614,44 @@ class _TransactionDisplayRow {
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[6],
+            width: columnWidths[8],
             child: _TransactionStatusIcon(
               status: transaction.cleared,
               onPressed: () => onStatusChanged(transaction),
+              enabled: enabled && !isSplit,
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TransactionFlagIcon extends StatelessWidget {
+  const _TransactionFlagIcon({required this.flag, required this.onPressed});
+  final String flag;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    const colors = {
+      'red': Color(0xFFF44336),
+      'orange': Color(0xFFFF9800),
+      'yellow': Color(0xFFFFC107),
+      'green': Color(0xFF4CAF50),
+      'blue': Color(0xFF42A5F5),
+      'purple': Color(0xFFAB47BC),
+    };
+    final color = colors[flag.toLowerCase()];
+    return IconButton(
+      tooltip: color == null ? 'Flag' : '$flag flag - κλικ για αλλαγή',
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      icon: Icon(
+        Icons.flag,
+        size: 18,
+        color: color ?? const Color(0xFFB0B7C3),
+      ),
     );
   }
 }
