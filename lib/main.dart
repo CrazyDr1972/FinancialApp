@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.38';
+const appVersion = 'v0.1.39';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2012,7 +2012,7 @@ class _NavAccountGroup extends StatelessWidget {
                   ).format(total),
                   style: TextStyle(
                     color: color,
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
