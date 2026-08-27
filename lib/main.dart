@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.33';
+const appVersion = 'v0.1.34';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2344,6 +2344,10 @@ class _FilterDropdown extends StatelessWidget {
   );
 }
 
+String _displaySplitMemo(String memo) => memo
+    .replaceFirst(RegExp(r'^Split \(\d+/\d+\)\s*'), '')
+    .trim();
+
 class _TransactionTable extends StatelessWidget {
   const _TransactionTable({
     required this.transactions,
@@ -2382,6 +2386,7 @@ class _TransactionTable extends StatelessWidget {
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
 
+
   List<_TransactionDisplayRow> _displayRows() {
     final rows = <_TransactionDisplayRow>[];
     final rowOrders = <int>[];
@@ -2415,14 +2420,9 @@ class _TransactionTable extends StatelessWidget {
         continue;
       }
       final first = children.first;
-      var parentMemo = '';
-      for (final child in children) {
-        final memo = child.memo.replaceFirst(splitPattern, '').trim();
-        if (memo.isNotEmpty) {
-          parentMemo = memo;
-          break;
-        }
-      }
+      final parentMemo = children
+          .map((child) => _displaySplitMemo(child.memo))
+          .firstWhere((memo) => memo.isNotEmpty, orElse: () => '');
       final totalInflow = children.fold<double>(
         0,
         (sum, transaction) => sum + transaction.inflow,
@@ -2628,7 +2628,6 @@ class _TransactionDisplayRow {
     required bool enabled,
     required VoidCallback? onSplitToggled,
   }) {
-    final splitPattern = RegExp(r'^Split \(\d+/\d+\)\s*');
     final category = transaction.categoryGroup.isEmpty
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
@@ -2648,11 +2647,14 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[1],
-            child: Align(
-              alignment: Alignment.centerRight,
+            child: Center(
               child: IconButton(
                 tooltip: 'Εικόνα συναλλαγής',
                 padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 34,
+                  height: 34,
+                ),
                 onPressed: () {},
                 icon: const Icon(Icons.image_outlined, size: 17),
               ),
@@ -2698,7 +2700,7 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[5],
             child: Text(
-              transaction.memo.replaceFirst(splitPattern, ''),
+              _displaySplitMemo(transaction.memo),
               overflow: TextOverflow.ellipsis,
             ),
           ),
