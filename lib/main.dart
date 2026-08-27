@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.13';
+const appVersion = 'v0.1.14';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -398,6 +398,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   Map<String, double> get _accountBalances {
     final balances = <String, double>{};
     for (final transaction in _transactions) {
+      if (transaction.date.isAfter(DateTime.now())) continue;
       balances.update(
         transaction.account,
         (value) => value + transaction.net,
