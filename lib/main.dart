@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.37';
+const appVersion = 'v0.1.38';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2494,6 +2494,9 @@ class _TransactionTable extends StatelessWidget {
       headingRowHeight: 34,
       dataRowMinHeight: 34,
       dataRowMaxHeight: 34,
+      horizontalMargin: 8,
+      columnSpacing: 12,
+      checkboxHorizontalMargin: 8,
       dataRowColor: scheduled
           ? const MaterialStatePropertyAll(Color(0xFFFBF8F0))
           : null,
