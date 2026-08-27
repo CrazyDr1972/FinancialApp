@@ -13,7 +13,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.7';
+const appVersion = 'v0.1.8';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -467,36 +467,46 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     DateTime monthOf(DateTime date) => DateTime(date.year, date.month);
     final firstMonth = monthOf(relevant.first.date);
     final lastMonth = monthOf(DateTime.now());
-    final monthlyAssets = <DateTime, double>{};
-    final monthlyDebts = <DateTime, double>{};
+    final monthlyChanges = <DateTime, List<Transaction>>{};
     for (final transaction in relevant) {
-      final type = classifyAccount(transaction.account);
-      if (type == AccountType.liquid ||
-          type == AccountType.investment ||
-          type == AccountType.asset) {
-        monthlyAssets.update(
-          monthOf(transaction.date),
-          (value) => value + transaction.net,
-          ifAbsent: () => transaction.net,
-        );
-      } else if (type == AccountType.creditCard || type == AccountType.loan) {
-        monthlyDebts.update(
-          monthOf(transaction.date),
-          (value) => value - transaction.net,
-          ifAbsent: () => -transaction.net,
-        );
-      }
+      monthlyChanges.putIfAbsent(monthOf(transaction.date), () => []).add(
+        transaction,
+      );
     }
-    var assets = 0.0;
-    var debts = 0.0;
+
+    // Rebuild each account's balance first. This preserves Starting Balance
+    // rows and prevents unrelated accounts from masking negative balances.
+    final balances = <String, double>{};
     final points = <NetWorthPoint>[];
     for (
       var month = firstMonth;
       !month.isAfter(lastMonth);
       month = DateTime(month.year, month.month + 1)
     ) {
-      assets = (assets + (monthlyAssets[month] ?? 0)).clamp(0, double.infinity);
-      debts = (debts + (monthlyDebts[month] ?? 0)).clamp(0, double.infinity);
+      for (final transaction in monthlyChanges[month] ?? const []) {
+        balances.update(
+          transaction.account,
+          (value) => value + transaction.net,
+          ifAbsent: () => transaction.net,
+        );
+      }
+
+      var assets = 0.0;
+      var debts = 0.0;
+      for (final entry in balances.entries) {
+        switch (classifyAccount(entry.key)) {
+          case AccountType.liquid:
+          case AccountType.investment:
+          case AccountType.asset:
+            assets += math.max(0, entry.value);
+          case AccountType.creditCard:
+          case AccountType.loan:
+            debts += math.max(0, -entry.value);
+          case AccountType.personalDebts:
+          case AccountType.inactive:
+            break;
+        }
+      }
       points.add(
         NetWorthPoint(
           month: month,
