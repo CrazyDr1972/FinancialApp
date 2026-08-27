@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.26';
+const appVersion = 'v0.1.27';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -492,6 +492,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       }
     });
   }
+
+  void _clearSelection() => setState(_selectedTransactions.clear);
 
   void _setSplitSelected(
     List<Transaction> transactions,
@@ -1110,6 +1112,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         ),
         const SizedBox(height: 14),
         if (_error != null) _ErrorBanner(message: _error!),
+        if (_selectedTransactions.isNotEmpty)
+          _SelectionActionBar(
+            count: _selectedTransactions.length,
+            onClear: _clearSelection,
+          ),
         const SizedBox(height: 10),
         if (transactions.isEmpty)
           const Card(
@@ -1317,6 +1324,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         ),
         const SizedBox(height: 16),
         if (_error != null) _ErrorBanner(message: _error!),
+        if (_selectedTransactions.isNotEmpty)
+          _SelectionActionBar(
+            count: _selectedTransactions.length,
+            onClear: _clearSelection,
+          ),
         if (future.isNotEmpty) ...[
           _TransactionGroupHeader(
             title: 'Μελλοντικές συναλλαγές',
@@ -2693,6 +2705,55 @@ class _TransactionStatusIcon extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SelectionActionBar extends StatelessWidget {
+  const _SelectionActionBar({required this.count, required this.onClear});
+  final int count;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFF1D1D4F),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: onClear,
+          tooltip: 'Καθαρισμός επιλογής',
+          icon: const Icon(Icons.close, color: Colors.white, size: 16),
+        ),
+        Text(
+          '$count ${count == 1 ? 'Transaction' : 'Transactions'}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 22),
+        TextButton.icon(
+          onPressed: () {},
+          icon: const Icon(Icons.category, color: Colors.white, size: 16),
+          label: const Text('Categorize', style: TextStyle(color: Colors.white)),
+        ),
+        TextButton.icon(
+          onPressed: () {},
+          icon: const Icon(Icons.flag, color: Colors.white, size: 16),
+          label: const Text('Flag', style: TextStyle(color: Colors.white)),
+        ),
+        TextButton.icon(
+          onPressed: () {},
+          icon: const Icon(Icons.more_horiz, color: Colors.white, size: 16),
+          label: const Text('More', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
 }
 
 class _TransactionGroupHeader extends StatelessWidget {
