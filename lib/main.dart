@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.9.2';
+const appVersion = 'v1.0.0';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3378,14 +3378,16 @@ class _TransactionDisplayRow {
     void updateColumnAmount(String value, bool outflowColumn) {
       final parsed = _parseAmountInput(value);
       if (parsed == null) return;
-      final signed = outflowColumn ? parsed : -parsed;
+      final amount = parsed.abs();
+      final signed = outflowColumn ? amount : -amount;
       if (children != null) {
         onEditSplitAmount(children!, signed);
       } else {
         onEditChanged(
           transaction.copyWith(
-            outflow: signed >= 0 ? signed : 0,
-            inflow: signed < 0 ? signed.abs() : 0,
+            // The edited column owns the amount; the opposite column is zero.
+            outflow: outflowColumn ? amount : 0,
+            inflow: outflowColumn ? 0 : amount,
           ),
         );
       }
