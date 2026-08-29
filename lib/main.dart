@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.45';
+const appVersion = 'v0.1.46';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -125,14 +125,17 @@ class Transaction {
     String? flag,
     DateTime? date,
     String? memo,
+    String? payee,
+    String? category,
+    String? categoryGroup,
     double? outflow,
     double? inflow,
   }) => Transaction(
     account: account,
     date: date ?? this.date,
-    payee: payee,
-    category: category,
-    categoryGroup: categoryGroup,
+    payee: payee ?? this.payee,
+    category: category ?? this.category,
+    categoryGroup: categoryGroup ?? this.categoryGroup,
     memo: memo ?? this.memo,
     outflow: outflow ?? this.outflow,
     inflow: inflow ?? this.inflow,
@@ -273,7 +276,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
-  List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 180, 130, 90];
+  List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 130, 90];
   final Set<Transaction> _selectedTransactions = {};
   final Map<Transaction, Uint8List> _transactionImages = {};
   final Set<String> _collapsedSplits = {};
@@ -479,10 +482,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       case 5:
         return compareText(first.memo, second.memo);
       case 6:
-        return compareText(first.account, second.account);
-      case 7:
         return first.net.compareTo(second.net);
-      case 8:
+      case 7:
         int statusRank(String status) => switch (status.toLowerCase()) {
           'uncleared' => 0,
           'cleared' => 1,
@@ -707,6 +708,77 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     );
     if (confirmed != true || !mounted) return;
     setState(() => _transactions.removeWhere(parts.contains));
+  }
+
+  Future<void> _editTransaction(Transaction transaction) async {
+    DateTime editDate = transaction.date;
+    final payee = TextEditingController(text: transaction.payee);
+    final memo = TextEditingController(text: transaction.memo);
+    final amount = TextEditingController(
+      text: (transaction.outflow + transaction.inflow).toStringAsFixed(2),
+    );
+    final edited = await showDialog<Transaction>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit transaction'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(DateFormat('dd/MM/yyyy').format(editDate)),
+                  trailing: const Icon(Icons.calendar_today_outlined),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: editDate,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) setDialogState(() => editDate = picked);
+                  },
+                ),
+                TextField(controller: payee, decoration: const InputDecoration(labelText: 'Payee')),
+                TextField(controller: memo, decoration: const InputDecoration(labelText: 'Memo')),
+                TextField(
+                  controller: amount,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final value = double.tryParse(amount.text.replaceAll(',', '.'));
+                if (value == null || value < 0) return;
+                Navigator.pop(
+                  dialogContext,
+                  transaction.copyWith(
+                    date: editDate,
+                    payee: payee.text,
+                    memo: memo.text,
+                    outflow: transaction.outflow > 0 ? value : 0,
+                    inflow: transaction.inflow > 0 ? value : 0,
+                  ),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    payee.dispose();
+    memo.dispose();
+    amount.dispose();
+    if (edited == null || !mounted) return;
+    final index = _transactions.indexOf(transaction);
+    if (index >= 0) setState(() => _transactions[index] = edited);
   }
 
   void _cycleFlag(Transaction transaction) {
@@ -1347,6 +1419,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
                 onContextMenu: _showTransactionMenu,
+                onEdit: _editTransaction,
               ),
             ),
           const SizedBox(height: 12),
@@ -1373,6 +1446,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
               onContextMenu: _showTransactionMenu,
+              onEdit: _editTransaction,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1574,6 +1648,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
                 onContextMenu: _showTransactionMenu,
+                onEdit: _editTransaction,
               ),
             ),
           const SizedBox(height: 12),
@@ -1607,6 +1682,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
               onContextMenu: _showTransactionMenu,
+              onEdit: _editTransaction,
             ),
           ),
       ],
@@ -2530,6 +2606,7 @@ class _TransactionTable extends StatelessWidget {
     required this.transactionImages,
     required this.onImageDoubleTap,
     required this.onContextMenu,
+    required this.onEdit,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2552,6 +2629,7 @@ class _TransactionTable extends StatelessWidget {
   final Map<Transaction, Uint8List> transactionImages;
   final ValueChanged<Transaction> onImageDoubleTap;
   final void Function(Offset, Transaction, List<Transaction>?) onContextMenu;
+  final ValueChanged<Transaction> onEdit;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2661,7 +2739,14 @@ class _TransactionTable extends StatelessWidget {
           final row = rows[rowIndex];
           onContextMenu(event.position, row.transaction, row.children);
         },
-        child: DataTable(
+        child: GestureDetector(
+          onDoubleTapDown: (details) {
+            final rowIndex = ((details.localPosition.dy - 34) / 34).floor();
+            final rows = _renderRows();
+            if (rowIndex < 0 || rowIndex >= rows.length) return;
+            onEdit(rows[rowIndex].transaction);
+          },
+          child: DataTable(
       headingRowHeight: 34,
       dataRowMinHeight: 34,
       dataRowMaxHeight: 34,
@@ -2683,9 +2768,8 @@ class _TransactionTable extends StatelessWidget {
         DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
         DataColumn(label: _columnHeader(4, 'Κατηγορία')),
         DataColumn(label: _columnHeader(5, 'Memo')),
-        DataColumn(label: _columnHeader(6, 'Λογαριασμός')),
-        DataColumn(label: _columnHeader(7, 'Ποσό')),
-        DataColumn(label: _columnHeader(8, 'Κατάσταση')),
+        DataColumn(label: _columnHeader(6, 'Ποσό')),
+        DataColumn(label: _columnHeader(7, 'Κατάσταση')),
       ],
       rows: _displayRows().expand((displayRow) {
             final parent = displayRow.toDataRow(
@@ -2737,6 +2821,7 @@ class _TransactionTable extends StatelessWidget {
             ];
           })
           .toList(),
+          ),
         ),
       ),
     ),
@@ -2914,15 +2999,6 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[6],
             child: Text(
-              transaction.account,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ),
-        DataCell(
-          SizedBox(
-            width: columnWidths[7],
-            child: Text(
               transaction.outflow > 0
                   ? '-${currency.format(transaction.outflow)}'
                   : '+${currency.format(transaction.inflow)}',
@@ -2937,7 +3013,7 @@ class _TransactionDisplayRow {
         ),
         DataCell(
           SizedBox(
-            width: columnWidths[8],
+            width: columnWidths[7],
             child: _TransactionStatusIcon(
               status: transaction.cleared,
               onPressed: () => onStatusChanged(transaction),
