@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.8.6';
+const appVersion = 'v0.8.8';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2792,6 +2792,18 @@ String _displaySplitMemo(String memo) => memo
     .replaceFirst(RegExp(r'^Split \(\d+/\d+\)\s*'), '')
     .trim();
 
+String _formatAmountInput(double value) =>
+    NumberFormat('#,##0.00', 'el_GR').format(value);
+
+double? _parseAmountInput(String value) {
+  final normalized = value.trim().replaceAll(' ', '');
+  if (normalized.isEmpty) return null;
+  final european = normalized.contains(',')
+      ? normalized.replaceAll('.', '').replaceAll(',', '.')
+      : normalized;
+  return double.tryParse(european);
+}
+
 class _TransactionTable extends StatelessWidget {
   const _TransactionTable({
     required this.transactions,
@@ -3111,8 +3123,12 @@ class _TransactionTable extends StatelessWidget {
     final remainingInflow = remaining > 0 ? remaining : 0.0;
     final canSave = remaining.abs() < 0.005;
     final amount = (double value) => Text(
-          value.toStringAsFixed(2).replaceAll('.', ','),
-          style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+          _formatAmountInput(value),
+          style: TextStyle(
+            fontSize: 13,
+            color: const Color(0xFF102A43),
+            fontWeight: value > 0 ? FontWeight.w700 : FontWeight.w400,
+          ),
         );
     DataRow row({required List<DataCell> cells}) => DataRow(
           color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
@@ -3309,7 +3325,7 @@ class _TransactionDisplayRow {
       ),
     );
     void updateColumnAmount(String value, bool outflowColumn) {
-      final parsed = double.tryParse(value.replaceAll(',', '.'));
+      final parsed = _parseAmountInput(value);
       if (parsed == null) return;
       final signed = outflowColumn ? parsed : -parsed;
       if (children != null) {
@@ -3321,7 +3337,7 @@ class _TransactionDisplayRow {
         ));
       }
     }
-    String editAmount(double value) => value.toStringAsFixed(2).replaceAll('.', ',');
+    String editAmount(double value) => _formatAmountInput(value);
     Widget displayAmount(double value, Color color) => value == 0
         ? const SizedBox.shrink()
         : Align(
