@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.8.5';
+const appVersion = 'v0.8.6';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2921,9 +2921,12 @@ class _TransactionTable extends StatelessWidget {
             ? 'Cleared'
             : 'Uncleared',
       );
+      final displayParent = editingSplitKey == key && editingTransaction != null
+          ? editingTransaction!
+          : parent;
       rows.add(
         _TransactionDisplayRow(
-          parent,
+          displayParent,
           children: children,
           splitKey: key,
           collapsed: collapsedSplits.contains(key),
