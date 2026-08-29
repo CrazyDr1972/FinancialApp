@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.43';
+const appVersion = 'v0.1.44';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -123,6 +123,7 @@ class Transaction {
     String? cleared,
     String? flag,
     DateTime? date,
+    String? memo,
     double? outflow,
     double? inflow,
   }) => Transaction(
@@ -131,7 +132,7 @@ class Transaction {
     payee: payee,
     category: category,
     categoryGroup: categoryGroup,
-    memo: memo,
+    memo: memo ?? this.memo,
     outflow: outflow ?? this.outflow,
     inflow: inflow ?? this.inflow,
     cleared: cleared ?? this.cleared,
@@ -638,17 +639,43 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     );
     amountController.dispose();
     if (amount == null || amount < 0 || !mounted) return;
-    final scale = initialAmount == 0 ? 1.0 : amount / initialAmount;
-    final duplicates = parts
-        .map(
-          (item) => item.copyWith(
-            date: date,
-            outflow: item.outflow * scale,
-            inflow: item.inflow * scale,
-          ),
-        )
-        .toList();
+    final targetCents = (amount * 100).round();
+    final initialCents = (initialAmount * 100).round();
+    var assignedCents = 0;
+    final duplicates = <Transaction>[];
+    for (var index = 0; index < parts.length; index++) {
+      final item = parts[index];
+      final itemCents = ((item.outflow + item.inflow) * 100).round();
+      final cents = index == parts.length - 1
+          ? targetCents - assignedCents
+          : initialCents == 0
+          ? 0
+          : (itemCents * targetCents / initialCents).round();
+      assignedCents += cents;
+      final itemAmount = cents / 100;
+      duplicates.add(
+        item.copyWith(
+          date: date,
+          memo: _memoWithTotal(item.memo, amount),
+          outflow: item.outflow > 0 ? itemAmount : 0,
+          inflow: item.inflow > 0 ? itemAmount : 0,
+        ),
+      );
+    }
     setState(() => _transactions.addAll(duplicates));
+  }
+
+  String _memoWithTotal(String memo, double amount) {
+    final formatted = amount.toStringAsFixed(2).replaceAll('.', ',');
+    final totalPattern = RegExp(r'ΣΥΝΟΛΟ\s*:\s*[-+]?\d+(?:[.,]\d+)?',
+        caseSensitive: false);
+    if (totalPattern.hasMatch(memo)) {
+      return memo.replaceFirst(totalPattern, 'ΣΥΝΟΛΟ: $formatted');
+    }
+    final trimmed = memo.trim();
+    return trimmed.isEmpty
+        ? 'ΣΥΝΟΛΟ: $formatted'
+        : '$trimmed - ΣΥΝΟΛΟ: $formatted';
   }
 
   Future<void> _deleteTransaction(
