@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.6';
+const appVersion = 'v0.6.7';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3094,6 +3094,7 @@ class _TransactionDisplayRow {
     final splitPrefix = RegExp(r'^(Split \(\d+/\d+\)\s*)').firstMatch(transaction.memo)?.group(1) ?? '';
     Widget editor(String value, ValueChanged<String> onChanged) => TextFormField(
       initialValue: value,
+      style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
       onChanged: onChanged,
       decoration: const InputDecoration(
         isDense: true,
@@ -3202,12 +3203,14 @@ class _TransactionDisplayRow {
                         TextField(
                           controller: controller,
                           focusNode: focusNode,
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
                           onChanged: (value) => onEditChanged(
                             transaction.copyWith(category: value),
                           ),
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                            suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
                           ),
                         ),
                   )
