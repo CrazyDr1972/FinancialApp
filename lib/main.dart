@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.8.9';
+const appVersion = 'v0.8.10';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3490,10 +3490,9 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[6],
             child: editing
-                ? editor(
-                    editAmount(transaction.outflow),
-                    (value) => updateColumnAmount(value, true),
-                    textAlign: TextAlign.right,
+                ? _AmountEditor(
+                    initialValue: editAmount(transaction.outflow),
+                    onChanged: (value) => updateColumnAmount(value, true),
                   )
                 : displayAmount(transaction.outflow, const Color(0xFFD45D4C)),
           ),
@@ -3502,10 +3501,9 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[7],
             child: editing
-                ? editor(
-                    editAmount(transaction.inflow),
-                    (value) => updateColumnAmount(value, false),
-                    textAlign: TextAlign.right,
+                ? _AmountEditor(
+                    initialValue: editAmount(transaction.inflow),
+                    onChanged: (value) => updateColumnAmount(value, false),
                   )
                 : displayAmount(transaction.inflow, const Color(0xFF2D8A5F)),
           ),
@@ -3525,6 +3523,62 @@ class _TransactionDisplayRow {
       ],
     );
   }
+}
+
+class _AmountEditor extends StatefulWidget {
+  const _AmountEditor({required this.initialValue, required this.onChanged});
+
+  final String initialValue;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_AmountEditor> createState() => _AmountEditorState();
+}
+
+class _AmountEditorState extends State<_AmountEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+    _focusNode = FocusNode()..addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus) return;
+    final parsed = _parseAmountInput(_controller.text);
+    if (parsed == null) return;
+    final formatted = _formatAmountInput(parsed);
+    _controller.value = TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        textAlign: TextAlign.right,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+        onChanged: widget.onChanged,
+        decoration: const InputDecoration(
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+        ),
+      );
 }
 
 class _TransactionImageCell extends StatelessWidget {
