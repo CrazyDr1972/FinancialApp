@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.16';
+const appVersion = 'v0.6.17';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3111,7 +3111,7 @@ class _TransactionTable extends StatelessWidget {
     amountsRow[6] = DataCell(SizedBox(
       width: columnWidths[6],
       child: Padding(
-        padding: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.only(right: 18),
         child: Align(
           alignment: Alignment.centerRight,
           child: amount(remainingOutflow),
@@ -3121,7 +3121,7 @@ class _TransactionTable extends StatelessWidget {
     amountsRow[7] = DataCell(SizedBox(
       width: columnWidths[7],
       child: Padding(
-        padding: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.only(right: 18),
         child: Align(
           alignment: Alignment.centerRight,
           child: amount(remainingInflow),
