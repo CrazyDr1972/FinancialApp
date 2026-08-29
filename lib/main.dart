@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.9.0';
+const appVersion = 'v0.9.1';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
