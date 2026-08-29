@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.8';
+const appVersion = 'v0.6.9';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -824,7 +824,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   void _updateInlineSplitAmount(List<Transaction> parts, double amount) {
-    _editingSplitOriginal = parts;
+    _editingSplitOriginal ??= parts;
     final totalCents = (amount.abs() * 100).round();
     final weights = parts
         .map((part) => ((part.outflow + part.inflow) * 100).round())
