@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.13';
+const appVersion = 'v0.6.14';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3242,8 +3242,13 @@ class _TransactionDisplayRow {
     final editing = editingTransaction == transaction ||
         (editingSplitKey != null && editingSplitKey == splitKey);
     final splitPrefix = RegExp(r'^(Split \(\d+/\d+\)\s*)').firstMatch(transaction.memo)?.group(1) ?? '';
-    Widget editor(String value, ValueChanged<String> onChanged) => TextFormField(
+    Widget editor(
+      String value,
+      ValueChanged<String> onChanged, {
+      TextAlign textAlign = TextAlign.left,
+    }) => TextFormField(
       initialValue: value,
+      textAlign: textAlign,
       style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
       onChanged: onChanged,
       decoration: const InputDecoration(
@@ -3267,7 +3272,14 @@ class _TransactionDisplayRow {
     String editAmount(double value) => value.toStringAsFixed(2).replaceAll('.', ',');
     Widget displayAmount(double value, Color color) => value == 0
         ? const SizedBox.shrink()
-        : Text(currency.format(value), style: TextStyle(color: color, fontWeight: FontWeight.w700));
+        : Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              currency.format(value),
+              textAlign: TextAlign.right,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+          );
     final category = transaction.categoryGroup.isEmpty
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
@@ -3399,7 +3411,11 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[6],
             child: editing
-                ? editor(editAmount(transaction.outflow), (value) => updateColumnAmount(value, true))
+                ? editor(
+                    editAmount(transaction.outflow),
+                    (value) => updateColumnAmount(value, true),
+                    textAlign: TextAlign.right,
+                  )
                 : displayAmount(transaction.outflow, const Color(0xFFD45D4C)),
           ),
         ),
@@ -3407,7 +3423,11 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[7],
             child: editing
-                ? editor(editAmount(transaction.inflow), (value) => updateColumnAmount(value, false))
+                ? editor(
+                    editAmount(transaction.inflow),
+                    (value) => updateColumnAmount(value, false),
+                    textAlign: TextAlign.right,
+                  )
                 : displayAmount(transaction.inflow, const Color(0xFF2D8A5F)),
           ),
         ),
