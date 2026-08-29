@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.47';
+const appVersion = 'v0.1.48';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -281,6 +281,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   final Map<Transaction, Uint8List> _transactionImages = {};
   Transaction? _editingOriginal;
   Transaction? _editingDraft;
+  List<Transaction>? _editingSplitDraft;
+  List<Transaction>? _editingSplitOriginal;
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
@@ -787,6 +789,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     setState(() {
       _editingOriginal = transaction;
       _editingDraft = transaction;
+      _editingSplitDraft = null;
     });
   }
 
@@ -794,10 +797,45 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     _editingDraft = transaction;
   }
 
+  void _updateInlineSplitAmount(List<Transaction> parts, double amount) {
+    _editingSplitOriginal = parts;
+    final totalCents = (amount.abs() * 100).round();
+    final weights = parts
+        .map((part) => ((part.outflow + part.inflow) * 100).round())
+        .toList();
+    final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
+    var assigned = 0;
+    final updated = <Transaction>[];
+    for (var index = 0; index < parts.length; index++) {
+      final cents = index == parts.length - 1
+          ? totalCents - assigned
+          : weightTotal == 0
+          ? 0
+          : (weights[index] * totalCents / weightTotal).round();
+      assigned += cents;
+      final value = cents / 100;
+      updated.add(
+        parts[index].copyWith(
+          outflow: amount >= 0 ? value : 0,
+          inflow: amount < 0 ? value : 0,
+        ),
+      );
+    }
+    _editingDraft = _editingDraft == null
+        ? null
+        : _editingDraft!.copyWith(
+            outflow: amount >= 0 ? amount : 0,
+            inflow: amount < 0 ? amount.abs() : 0,
+          );
+    _editingSplitDraft = updated;
+  }
+
   void _cancelInlineEdit() {
     setState(() {
       _editingOriginal = null;
       _editingDraft = null;
+      _editingSplitDraft = null;
+      _editingSplitOriginal = null;
     });
   }
 
@@ -805,12 +843,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     final original = _editingOriginal;
     final draft = _editingDraft;
     if (original == null || draft == null) return;
-    final index = _transactions.indexOf(original);
-    if (index < 0) return;
     setState(() {
-      _transactions[index] = draft;
+      if (_editingSplitDraft != null && _editingSplitOriginal != null) {
+        _transactions.removeWhere(_editingSplitOriginal!.contains);
+        _transactions.addAll(_editingSplitDraft!);
+      } else {
+        final index = _transactions.indexOf(original);
+        if (index >= 0) _transactions[index] = draft;
+      }
       _editingOriginal = null;
       _editingDraft = null;
+      _editingSplitDraft = null;
+      _editingSplitOriginal = null;
     });
   }
 
@@ -1457,6 +1501,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
+                availableCategories: _categories,
+                onEditSplitAmount: _updateInlineSplitAmount,
               ),
             ),
           const SizedBox(height: 12),
@@ -1488,6 +1534,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
+              availableCategories: _categories,
+              onEditSplitAmount: _updateInlineSplitAmount,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1694,6 +1742,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
+                availableCategories: _categories,
+                onEditSplitAmount: _updateInlineSplitAmount,
               ),
             ),
           const SizedBox(height: 12),
@@ -1732,6 +1782,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
+              availableCategories: _categories,
+              onEditSplitAmount: _updateInlineSplitAmount,
             ),
           ),
       ],
@@ -2660,6 +2712,8 @@ class _TransactionTable extends StatelessWidget {
     required this.onEditChanged,
     required this.onEditSave,
     required this.onEditCancel,
+    required this.availableCategories,
+    required this.onEditSplitAmount,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2687,6 +2741,8 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onEditChanged;
   final VoidCallback onEditSave;
   final VoidCallback onEditCancel;
+  final List<String> availableCategories;
+  final void Function(List<Transaction>, double) onEditSplitAmount;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2842,6 +2898,8 @@ class _TransactionTable extends StatelessWidget {
               onEditChanged: onEditChanged,
               onEditSave: onEditSave,
               onEditCancel: onEditCancel,
+              availableCategories: availableCategories,
+              onEditSplitAmount: onEditSplitAmount,
               selected: displayRow.isSplit
                   ? displayRow.children!.every(selectedTransactions.contains)
                   : selectedTransactions.contains(displayRow.transaction),
@@ -2876,6 +2934,8 @@ class _TransactionTable extends StatelessWidget {
                   onEditChanged: onEditChanged,
                   onEditSave: onEditSave,
                   onEditCancel: onEditCancel,
+                  availableCategories: availableCategories,
+                  onEditSplitAmount: onEditSplitAmount,
                   selected: selectedTransactions.contains(child),
                   onSelected: (selected) =>
                       onTransactionSelected(child, selected),
@@ -2990,12 +3050,15 @@ class _TransactionDisplayRow {
     required ValueChanged<Transaction> onEditChanged,
     required VoidCallback onEditSave,
     required VoidCallback onEditCancel,
+    required List<String> availableCategories,
+    required void Function(List<Transaction>, double) onEditSplitAmount,
     required bool selected,
     required ValueChanged<bool> onSelected,
     required bool enabled,
     required VoidCallback? onSplitToggled,
   }) {
     final editing = editingTransaction == transaction;
+    final splitPrefix = RegExp(r'^(Split \(\d+/\d+\)\s*)').firstMatch(transaction.memo)?.group(1) ?? '';
     Widget editor(String value, ValueChanged<String> onChanged) => TextFormField(
       initialValue: value,
       onChanged: onChanged,
@@ -3016,6 +3079,9 @@ class _TransactionDisplayRow {
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
     return DataRow(
+      color: editing
+          ? const MaterialStatePropertyAll(Color(0xFFDAD9FF))
+          : null,
       selected: selected,
       onSelectChanged: enabled ? (value) => onSelected(value ?? false) : null,
       cells: [
@@ -3069,9 +3135,40 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[4],
             child: editing
-                ? editor(category, (value) => onEditChanged(
-                    transaction.copyWith(category: value),
-                  ))
+                ? Autocomplete<String>(
+                    initialValue: TextEditingValue(text: category),
+                    optionsBuilder: (value) {
+                      final query = value.text.toLowerCase();
+                      return availableCategories.where(
+                        (item) => item.toLowerCase().contains(query),
+                      );
+                    },
+                    onSelected: (value) {
+                      final separator = value.indexOf(':');
+                      onEditChanged(
+                        transaction.copyWith(
+                          categoryGroup: separator < 0
+                              ? ''
+                              : value.substring(0, separator).trim(),
+                          category: separator < 0
+                              ? value
+                              : value.substring(separator + 1).trim(),
+                        ),
+                      );
+                    },
+                    fieldViewBuilder: (context, controller, focusNode, _) =>
+                        TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          onChanged: (value) => onEditChanged(
+                            transaction.copyWith(category: value),
+                          ),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                          ),
+                        ),
+                  )
                 : Row(
               children: [
                 if (isSplit)
@@ -3093,9 +3190,8 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[5],
             child: editing
-                ? editor(transaction.memo, (value) => onEditChanged(
-                    transaction.copyWith(memo: value),
-                  ))
+                ? editor(transaction.memo.replaceFirst(splitPrefix, ''), (value) =>
+                    onEditChanged(transaction.copyWith(memo: '$splitPrefix$value')))
                 : Text(
                     _displaySplitMemo(transaction.memo),
                     overflow: TextOverflow.ellipsis,
@@ -3108,7 +3204,15 @@ class _TransactionDisplayRow {
             child: editing
                 ? editor(
                     (transaction.outflow + transaction.inflow).toStringAsFixed(2),
-                    updateAmount,
+                    (value) {
+                      final parsed = double.tryParse(value.replaceAll(',', '.'));
+                      if (parsed == null) return;
+                      if (children != null) {
+                        onEditSplitAmount(children!, parsed);
+                      } else {
+                        updateAmount(value);
+                      }
+                    },
                   )
                 : Text(
               transaction.outflow > 0
