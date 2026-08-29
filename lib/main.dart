@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.3';
+const appVersion = 'v0.6.4';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -276,7 +276,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   int? _hoveredNetWorthIndex;
   final Set<AccountType> _collapsedGroups = {};
   bool _futureTransactionsCollapsed = false;
-  List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 130, 90];
+  List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 110, 110, 90];
   final Set<Transaction> _selectedTransactions = {};
   final Map<Transaction, Uint8List> _transactionImages = {};
   Transaction? _editingOriginal;
@@ -486,8 +486,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       case 5:
         return compareText(first.memo, second.memo);
       case 6:
-        return first.net.compareTo(second.net);
+        return first.outflow.compareTo(second.outflow);
       case 7:
+        return first.inflow.compareTo(second.inflow);
+      case 8:
         int statusRank(String status) => switch (status.toLowerCase()) {
           'uncleared' => 0,
           'cleared' => 1,
@@ -1501,6 +1503,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
+                highlightEditing: false,
                 availableCategories: _categories,
                 onEditSplitAmount: _updateInlineSplitAmount,
               ),
@@ -1534,6 +1537,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
+              highlightEditing: false,
               availableCategories: _categories,
               onEditSplitAmount: _updateInlineSplitAmount,
             ),
@@ -1742,6 +1746,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
+                highlightEditing: false,
                 availableCategories: _categories,
                 onEditSplitAmount: _updateInlineSplitAmount,
               ),
@@ -1782,6 +1787,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
+              highlightEditing: false,
               availableCategories: _categories,
               onEditSplitAmount: _updateInlineSplitAmount,
             ),
@@ -2712,6 +2718,7 @@ class _TransactionTable extends StatelessWidget {
     required this.onEditChanged,
     required this.onEditSave,
     required this.onEditCancel,
+    required this.highlightEditing,
     required this.availableCategories,
     required this.onEditSplitAmount,
     required this.collapsedSplits,
@@ -2741,6 +2748,7 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onEditChanged;
   final VoidCallback onEditSave;
   final VoidCallback onEditCancel;
+  final bool highlightEditing;
   final List<String> availableCategories;
   final void Function(List<Transaction>, double) onEditSplitAmount;
   final Set<String> collapsedSplits;
@@ -2881,8 +2889,9 @@ class _TransactionTable extends StatelessWidget {
         DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
         DataColumn(label: _columnHeader(4, 'Κατηγορία')),
         DataColumn(label: _columnHeader(5, 'Memo')),
-        DataColumn(label: _columnHeader(6, 'Ποσό')),
-        DataColumn(label: _columnHeader(7, 'Κατάσταση')),
+        DataColumn(label: _columnHeader(6, 'Outflow')),
+        DataColumn(label: _columnHeader(7, 'Inflow')),
+        DataColumn(label: _columnHeader(8, 'Κατάσταση')),
       ],
       rows: _displayRows().expand((displayRow) {
             final parent = displayRow.toDataRow(
@@ -2895,6 +2904,8 @@ class _TransactionTable extends StatelessWidget {
               onImageDoubleTap: onImageDoubleTap,
               onContextMenu: onContextMenu,
               editingTransaction: editingTransaction,
+              highlightEditing: displayRow.isSplit &&
+                  editingTransaction == displayRow.transaction,
               onEditChanged: onEditChanged,
               onEditSave: onEditSave,
               onEditCancel: onEditCancel,
@@ -2931,6 +2942,8 @@ class _TransactionTable extends StatelessWidget {
                   onImageDoubleTap: onImageDoubleTap,
                   onContextMenu: onContextMenu,
                   editingTransaction: editingTransaction,
+                  highlightEditing: displayRow.isSplit &&
+                      editingTransaction == displayRow.transaction,
                   onEditChanged: onEditChanged,
                   onEditSave: onEditSave,
                   onEditCancel: onEditCancel,
@@ -3050,6 +3063,7 @@ class _TransactionDisplayRow {
     required ValueChanged<Transaction> onEditChanged,
     required VoidCallback onEditSave,
     required VoidCallback onEditCancel,
+    required bool highlightEditing,
     required List<String> availableCategories,
     required void Function(List<Transaction>, double) onEditSplitAmount,
     required bool selected,
@@ -3067,19 +3081,28 @@ class _TransactionDisplayRow {
         contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
       ),
     );
-    void updateAmount(String value) {
+    void updateColumnAmount(String value, bool outflowColumn) {
       final parsed = double.tryParse(value.replaceAll(',', '.'));
-      if (parsed == null || parsed < 0) return;
-      onEditChanged(transaction.copyWith(
-        outflow: transaction.outflow > 0 ? parsed : 0,
-        inflow: transaction.inflow > 0 ? parsed : 0,
-      ));
+      if (parsed == null) return;
+      final signed = outflowColumn ? parsed : -parsed;
+      if (children != null) {
+        onEditSplitAmount(children!, signed);
+      } else {
+        onEditChanged(transaction.copyWith(
+          outflow: signed >= 0 ? signed : 0,
+          inflow: signed < 0 ? signed.abs() : 0,
+        ));
+      }
     }
+    String editAmount(double value) => value.toStringAsFixed(2).replaceAll('.', ',');
+    Widget displayAmount(double value, Color color) => value == 0
+        ? const SizedBox.shrink()
+        : Text(currency.format(value), style: TextStyle(color: color, fontWeight: FontWeight.w700));
     final category = transaction.categoryGroup.isEmpty
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
     return DataRow(
-      color: editing
+      color: editing || highlightEditing
           ? const MaterialStatePropertyAll(Color(0xFFDAD9FF))
           : null,
       selected: selected,
@@ -3202,34 +3225,21 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[6],
             child: editing
-                ? editor(
-                    (transaction.outflow + transaction.inflow).toStringAsFixed(2),
-                    (value) {
-                      final parsed = double.tryParse(value.replaceAll(',', '.'));
-                      if (parsed == null) return;
-                      if (children != null) {
-                        onEditSplitAmount(children!, parsed);
-                      } else {
-                        updateAmount(value);
-                      }
-                    },
-                  )
-                : Text(
-              transaction.outflow > 0
-                  ? '-${currency.format(transaction.outflow)}'
-                  : '+${currency.format(transaction.inflow)}',
-              style: TextStyle(
-                color: transaction.outflow > 0
-                    ? const Color(0xFFD45D4C)
-                    : const Color(0xFF2D8A5F),
-                fontWeight: FontWeight.w700,
-              ),
-                ),
+                ? editor(editAmount(transaction.outflow), (value) => updateColumnAmount(value, true))
+                : displayAmount(transaction.outflow, const Color(0xFFD45D4C)),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[7],
+            child: editing
+                ? editor(editAmount(transaction.inflow), (value) => updateColumnAmount(value, false))
+                : displayAmount(transaction.inflow, const Color(0xFF2D8A5F)),
+          ),
+        ),
+        DataCell(
+          SizedBox(
+            width: columnWidths[8],
             child: editing
                 ? Row(
                     mainAxisSize: MainAxisSize.min,
