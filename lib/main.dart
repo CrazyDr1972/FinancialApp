@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.4';
+const appVersion = 'v0.6.5';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -283,6 +283,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   Transaction? _editingDraft;
   List<Transaction>? _editingSplitDraft;
   List<Transaction>? _editingSplitOriginal;
+  String? _editingSplitKey;
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
@@ -787,11 +788,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     if (index >= 0) setState(() => _transactions[index] = edited);
   }
 
-  void _beginInlineEdit(Transaction transaction) {
+  void _beginInlineEdit(Transaction transaction, [String? splitKey]) {
     setState(() {
       _editingOriginal = transaction;
       _editingDraft = transaction;
       _editingSplitDraft = null;
+      _editingSplitKey = splitKey;
     });
   }
 
@@ -838,6 +840,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       _editingDraft = null;
       _editingSplitDraft = null;
       _editingSplitOriginal = null;
+      _editingSplitKey = null;
     });
   }
 
@@ -857,6 +860,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       _editingDraft = null;
       _editingSplitDraft = null;
       _editingSplitOriginal = null;
+      _editingSplitKey = null;
     });
   }
 
@@ -1500,6 +1504,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onContextMenu: _showTransactionMenu,
                 editingTransaction: _editingDraft,
                 onEdit: _beginInlineEdit,
+                editingSplitKey: _editingSplitKey,
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
@@ -1534,6 +1539,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onContextMenu: _showTransactionMenu,
               editingTransaction: _editingDraft,
               onEdit: _beginInlineEdit,
+              editingSplitKey: _editingSplitKey,
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
@@ -1743,6 +1749,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onContextMenu: _showTransactionMenu,
                 editingTransaction: _editingDraft,
                 onEdit: _beginInlineEdit,
+                editingSplitKey: _editingSplitKey,
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
@@ -1784,6 +1791,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onContextMenu: _showTransactionMenu,
               editingTransaction: _editingDraft,
               onEdit: _beginInlineEdit,
+              editingSplitKey: _editingSplitKey,
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
@@ -2714,6 +2722,7 @@ class _TransactionTable extends StatelessWidget {
     required this.onImageDoubleTap,
     required this.onContextMenu,
     required this.onEdit,
+    required this.editingSplitKey,
     required this.editingTransaction,
     required this.onEditChanged,
     required this.onEditSave,
@@ -2743,7 +2752,8 @@ class _TransactionTable extends StatelessWidget {
   final Map<Transaction, Uint8List> transactionImages;
   final ValueChanged<Transaction> onImageDoubleTap;
   final void Function(Offset, Transaction, List<Transaction>?) onContextMenu;
-  final ValueChanged<Transaction> onEdit;
+  final void Function(Transaction, [String?]) onEdit;
+  final String? editingSplitKey;
   final Transaction? editingTransaction;
   final ValueChanged<Transaction> onEditChanged;
   final VoidCallback onEditSave;
@@ -2865,7 +2875,7 @@ class _TransactionTable extends StatelessWidget {
             final rowIndex = ((details.localPosition.dy - 34) / 34).floor();
             final rows = _renderRows();
             if (rowIndex < 0 || rowIndex >= rows.length) return;
-            onEdit(rows[rowIndex].transaction);
+            onEdit(rows[rowIndex].transaction, rows[rowIndex].splitKey);
           },
           child: DataTable(
       headingRowHeight: 34,
@@ -2904,6 +2914,7 @@ class _TransactionTable extends StatelessWidget {
               onImageDoubleTap: onImageDoubleTap,
               onContextMenu: onContextMenu,
               editingTransaction: editingTransaction,
+              editingSplitKey: editingSplitKey,
               highlightEditing: displayRow.isSplit &&
                   editingTransaction == displayRow.transaction,
               onEditChanged: onEditChanged,
@@ -2942,6 +2953,7 @@ class _TransactionTable extends StatelessWidget {
                   onImageDoubleTap: onImageDoubleTap,
                   onContextMenu: onContextMenu,
                   editingTransaction: editingTransaction,
+                  editingSplitKey: editingSplitKey,
                   highlightEditing: displayRow.isSplit &&
                       editingTransaction == displayRow.transaction,
                   onEditChanged: onEditChanged,
@@ -3060,6 +3072,7 @@ class _TransactionDisplayRow {
     required ValueChanged<Transaction> onImageDoubleTap,
     required void Function(Offset, Transaction, List<Transaction>?) onContextMenu,
     required Transaction? editingTransaction,
+    required String? editingSplitKey,
     required ValueChanged<Transaction> onEditChanged,
     required VoidCallback onEditSave,
     required VoidCallback onEditCancel,
@@ -3071,7 +3084,8 @@ class _TransactionDisplayRow {
     required bool enabled,
     required VoidCallback? onSplitToggled,
   }) {
-    final editing = editingTransaction == transaction;
+    final editing = editingTransaction == transaction ||
+        (editingSplitKey != null && editingSplitKey == splitKey);
     final splitPrefix = RegExp(r'^(Split \(\d+/\d+\)\s*)').firstMatch(transaction.memo)?.group(1) ?? '';
     Widget editor(String value, ValueChanged<String> onChanged) => TextFormField(
       initialValue: value,
