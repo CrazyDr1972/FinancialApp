@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.14';
+const appVersion = 'v0.6.15';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3045,6 +3045,7 @@ class _TransactionTable extends StatelessWidget {
             return [
               ...childRows,
               ..._splitEditFooterRows(
+                columnWidths: columnWidths,
                 parent: displayRow.transaction,
                 parts: displayRow.children!,
                 onAddSplit: onEditAddSplit,
@@ -3061,6 +3062,7 @@ class _TransactionTable extends StatelessWidget {
   );
 
   List<DataRow> _splitEditFooterRows({
+    required List<double> columnWidths,
     required Transaction parent,
     required List<Transaction> parts,
     required VoidCallback onAddSplit,
@@ -3106,13 +3108,19 @@ class _TransactionTable extends StatelessWidget {
         ),
       ),
     );
-    amountsRow[6] = DataCell(Align(
-      alignment: Alignment.centerRight,
-      child: amount(remainingOutflow),
+    amountsRow[6] = DataCell(SizedBox(
+      width: columnWidths[6],
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: amount(remainingOutflow),
+      ),
     ));
-    amountsRow[7] = DataCell(Align(
-      alignment: Alignment.centerRight,
-      child: amount(remainingInflow),
+    amountsRow[7] = DataCell(SizedBox(
+      width: columnWidths[7],
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: amount(remainingInflow),
+      ),
     ));
 
     final actionsRow = [...emptyCells];
