@@ -7,6 +7,7 @@ import 'package:archive/archive.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -14,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.44';
+const appVersion = 'v0.1.45';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -2630,13 +2631,37 @@ class _TransactionTable extends StatelessWidget {
       ..sort((first, second) => rowOrders[first].compareTo(rowOrders[second]));
     return orderedIndexes.map((index) => rows[index]).toList();
   }
+
+  List<_TransactionDisplayRow> _renderRows() {
+    final rendered = <_TransactionDisplayRow>[];
+    for (final row in _displayRows()) {
+      rendered.add(row);
+      if (row.isSplit && !row.collapsed) {
+        rendered.addAll(
+          row.children!.map(
+            (child) => _TransactionDisplayRow(child, childOnly: true),
+          ),
+        );
+      }
+    }
+    return rendered;
+  }
   @override
   Widget build(BuildContext context) => Scrollbar(
     thumbVisibility: false,
     interactive: true,
     child: SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: DataTable(
+      child: Listener(
+        onPointerDown: (event) {
+          if (event.buttons != kSecondaryMouseButton) return;
+          final rowIndex = ((event.localPosition.dy - 34) / 34).floor();
+          final rows = _renderRows();
+          if (rowIndex < 0 || rowIndex >= rows.length) return;
+          final row = rows[rowIndex];
+          onContextMenu(event.position, row.transaction, row.children);
+        },
+        child: DataTable(
       headingRowHeight: 34,
       dataRowMinHeight: 34,
       dataRowMaxHeight: 34,
@@ -2712,6 +2737,7 @@ class _TransactionTable extends StatelessWidget {
             ];
           })
           .toList(),
+        ),
       ),
     ),
   );
@@ -2849,16 +2875,9 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[3],
-            child: GestureDetector(
-              onSecondaryTapUp: (details) => onContextMenu(
-                details.globalPosition,
-                transaction,
-                children,
-              ),
-              child: Text(
-                transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
-                overflow: TextOverflow.ellipsis,
-              ),
+            child: Text(
+              transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ),
