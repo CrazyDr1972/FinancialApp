@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.8.8';
+const appVersion = 'v0.8.9';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -932,7 +932,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     setState(() {
       if (_editingSplitDraft != null && _editingSplitOriginal != null) {
         _transactions.removeWhere(_editingSplitOriginal!.contains);
-        _transactions.addAll(_editingSplitDraft!);
+        final savedParts = _editingSplitDraft!
+            .map(
+              (part) => part.copyWith(
+                outflow: double.parse(part.outflow.toStringAsFixed(2)),
+                inflow: double.parse(part.inflow.toStringAsFixed(2)),
+              ),
+            )
+            .toList();
+        _transactions.addAll(savedParts);
+        debugPrint(
+          '[SplitEdit] save parts=${savedParts.map((part) => '${part.outflow.toStringAsFixed(2)}/${part.inflow.toStringAsFixed(2)}').join(',')}',
+        );
       } else {
         final index = _transactions.indexOf(original);
         if (index >= 0) _transactions[index] = draft;
