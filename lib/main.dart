@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.9';
+const appVersion = 'v0.6.10';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3044,7 +3044,7 @@ class _TransactionTable extends StatelessWidget {
             if (!isEditingSplit) return childRows;
             return [
               ...childRows,
-              _splitEditFooterRow(
+              ..._splitEditFooterRows(
                 parent: displayRow.transaction,
                 parts: displayRow.children!,
                 onAddSplit: onEditAddSplit,
@@ -3060,7 +3060,7 @@ class _TransactionTable extends StatelessWidget {
     ),
   );
 
-  DataRow _splitEditFooterRow({
+  List<DataRow> _splitEditFooterRows({
     required Transaction parent,
     required List<Transaction> parts,
     required VoidCallback onAddSplit,
@@ -3077,50 +3077,56 @@ class _TransactionTable extends StatelessWidget {
           value.toStringAsFixed(2).replaceAll('.', ','),
           style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
         );
-    return DataRow(
-      color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
-      cells: [
-        DataCell(
-          SizedBox(
-            width: 180,
-            child: TextButton.icon(
-              onPressed: onAddSplit,
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerLeft,
-              ),
-              icon: const Icon(Icons.add_circle, size: 16),
-              label: const Text('Add another split'),
-            ),
-          ),
-        ),
-        for (var index = 1; index < 5; index++)
-          DataCell(const SizedBox.shrink()),
-        DataCell(
-          Row(
-            children: [
-              const Spacer(),
-              const Text(
-                'Amount remaining to assign:',
-                style: TextStyle(fontSize: 13, color: Color(0xFF102A43)),
-              ),
-            ],
-          ),
-        ),
-        DataCell(Align(alignment: Alignment.centerRight, child: amount(remainingOutflow))),
-        DataCell(Align(alignment: Alignment.centerRight, child: amount(remainingInflow))),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
-              const SizedBox(width: 6),
-              FilledButton(onPressed: onSave, child: const Text('Save')),
-            ],
-          ),
-        ),
-      ],
+    DataRow row({required List<DataCell> cells}) => DataRow(
+          color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
+          cells: cells,
+        );
+    final emptyCells = List<DataCell>.generate(
+      9,
+      (_) => const DataCell(SizedBox.shrink()),
     );
+    final amountsRow = [...emptyCells];
+    amountsRow[1] = DataCell(
+      TextButton.icon(
+        onPressed: onAddSplit,
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.zero,
+          alignment: Alignment.centerLeft,
+        ),
+        icon: const Icon(Icons.add_circle, size: 16),
+        label: const Text('Add another split'),
+      ),
+    );
+    amountsRow[5] = const DataCell(
+      Align(
+        alignment: Alignment.centerRight,
+        child: Text(
+          'Amount remaining to assign:',
+          style: TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+        ),
+      ),
+    );
+    amountsRow[6] = DataCell(Align(
+      alignment: Alignment.centerRight,
+      child: amount(remainingOutflow),
+    ));
+    amountsRow[7] = DataCell(Align(
+      alignment: Alignment.centerRight,
+      child: amount(remainingInflow),
+    ));
+
+    final actionsRow = [...emptyCells];
+    actionsRow[8] = DataCell(
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+          const SizedBox(width: 6),
+          FilledButton(onPressed: onSave, child: const Text('Save')),
+        ],
+      ),
+    );
+    return [row(cells: amountsRow), row(cells: actionsRow)];
   }
 
   Widget _columnHeader(int index, String label) => MouseRegion(
