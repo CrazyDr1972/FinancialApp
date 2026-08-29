@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.46';
+const appVersion = 'v0.1.47';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -279,6 +279,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   List<double> _columnWidths = [34, 34, 120, 220, 180, 220, 130, 90];
   final Set<Transaction> _selectedTransactions = {};
   final Map<Transaction, Uint8List> _transactionImages = {};
+  Transaction? _editingOriginal;
+  Transaction? _editingDraft;
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
@@ -779,6 +781,37 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     if (edited == null || !mounted) return;
     final index = _transactions.indexOf(transaction);
     if (index >= 0) setState(() => _transactions[index] = edited);
+  }
+
+  void _beginInlineEdit(Transaction transaction) {
+    setState(() {
+      _editingOriginal = transaction;
+      _editingDraft = transaction;
+    });
+  }
+
+  void _updateInlineEdit(Transaction transaction) {
+    _editingDraft = transaction;
+  }
+
+  void _cancelInlineEdit() {
+    setState(() {
+      _editingOriginal = null;
+      _editingDraft = null;
+    });
+  }
+
+  void _saveInlineEdit() {
+    final original = _editingOriginal;
+    final draft = _editingDraft;
+    if (original == null || draft == null) return;
+    final index = _transactions.indexOf(original);
+    if (index < 0) return;
+    setState(() {
+      _transactions[index] = draft;
+      _editingOriginal = null;
+      _editingDraft = null;
+    });
   }
 
   void _cycleFlag(Transaction transaction) {
@@ -1419,7 +1452,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
                 onContextMenu: _showTransactionMenu,
-                onEdit: _editTransaction,
+                editingTransaction: _editingDraft,
+                onEdit: _beginInlineEdit,
+                onEditChanged: _updateInlineEdit,
+                onEditSave: _saveInlineEdit,
+                onEditCancel: _cancelInlineEdit,
               ),
             ),
           const SizedBox(height: 12),
@@ -1446,7 +1483,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
               onContextMenu: _showTransactionMenu,
-              onEdit: _editTransaction,
+              editingTransaction: _editingDraft,
+              onEdit: _beginInlineEdit,
+              onEditChanged: _updateInlineEdit,
+              onEditSave: _saveInlineEdit,
+              onEditCancel: _cancelInlineEdit,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1648,7 +1689,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
                 onContextMenu: _showTransactionMenu,
-                onEdit: _editTransaction,
+                editingTransaction: _editingDraft,
+                onEdit: _beginInlineEdit,
+                onEditChanged: _updateInlineEdit,
+                onEditSave: _saveInlineEdit,
+                onEditCancel: _cancelInlineEdit,
               ),
             ),
           const SizedBox(height: 12),
@@ -1682,7 +1727,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
               onContextMenu: _showTransactionMenu,
-              onEdit: _editTransaction,
+              editingTransaction: _editingDraft,
+              onEdit: _beginInlineEdit,
+              onEditChanged: _updateInlineEdit,
+              onEditSave: _saveInlineEdit,
+              onEditCancel: _cancelInlineEdit,
             ),
           ),
       ],
@@ -2607,6 +2656,10 @@ class _TransactionTable extends StatelessWidget {
     required this.onImageDoubleTap,
     required this.onContextMenu,
     required this.onEdit,
+    required this.editingTransaction,
+    required this.onEditChanged,
+    required this.onEditSave,
+    required this.onEditCancel,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2630,6 +2683,10 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onImageDoubleTap;
   final void Function(Offset, Transaction, List<Transaction>?) onContextMenu;
   final ValueChanged<Transaction> onEdit;
+  final Transaction? editingTransaction;
+  final ValueChanged<Transaction> onEditChanged;
+  final VoidCallback onEditSave;
+  final VoidCallback onEditCancel;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2781,6 +2838,10 @@ class _TransactionTable extends StatelessWidget {
               transactionImages: transactionImages,
               onImageDoubleTap: onImageDoubleTap,
               onContextMenu: onContextMenu,
+              editingTransaction: editingTransaction,
+              onEditChanged: onEditChanged,
+              onEditSave: onEditSave,
+              onEditCancel: onEditCancel,
               selected: displayRow.isSplit
                   ? displayRow.children!.every(selectedTransactions.contains)
                   : selectedTransactions.contains(displayRow.transaction),
@@ -2811,6 +2872,10 @@ class _TransactionTable extends StatelessWidget {
                   transactionImages: transactionImages,
                   onImageDoubleTap: onImageDoubleTap,
                   onContextMenu: onContextMenu,
+                  editingTransaction: editingTransaction,
+                  onEditChanged: onEditChanged,
+                  onEditSave: onEditSave,
+                  onEditCancel: onEditCancel,
                   selected: selectedTransactions.contains(child),
                   onSelected: (selected) =>
                       onTransactionSelected(child, selected),
@@ -2921,11 +2986,32 @@ class _TransactionDisplayRow {
     required Map<Transaction, Uint8List> transactionImages,
     required ValueChanged<Transaction> onImageDoubleTap,
     required void Function(Offset, Transaction, List<Transaction>?) onContextMenu,
+    required Transaction? editingTransaction,
+    required ValueChanged<Transaction> onEditChanged,
+    required VoidCallback onEditSave,
+    required VoidCallback onEditCancel,
     required bool selected,
     required ValueChanged<bool> onSelected,
     required bool enabled,
     required VoidCallback? onSplitToggled,
   }) {
+    final editing = editingTransaction == transaction;
+    Widget editor(String value, ValueChanged<String> onChanged) => TextFormField(
+      initialValue: value,
+      onChanged: onChanged,
+      decoration: const InputDecoration(
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+      ),
+    );
+    void updateAmount(String value) {
+      final parsed = double.tryParse(value.replaceAll(',', '.'));
+      if (parsed == null || parsed < 0) return;
+      onEditChanged(transaction.copyWith(
+        outflow: transaction.outflow > 0 ? parsed : 0,
+        inflow: transaction.inflow > 0 ? parsed : 0,
+      ));
+    }
     final category = transaction.categoryGroup.isEmpty
         ? transaction.category
         : '${transaction.categoryGroup}: ${transaction.category}';
@@ -2954,22 +3040,39 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[2],
-            child: Text(isChild ? '' : dateFormat.format(transaction.date)),
+            child: editing
+                ? editor(dateFormat.format(transaction.date), (value) {
+                    final parsed = DateTime.tryParse(
+                      value.split('/').reversed.join('-'),
+                    );
+                    if (parsed != null) {
+                      onEditChanged(transaction.copyWith(date: parsed));
+                    }
+                  })
+                : Text(isChild ? '' : dateFormat.format(transaction.date)),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[3],
-            child: Text(
-              transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: editing
+                ? editor(transaction.payee, (value) => onEditChanged(
+                    transaction.copyWith(payee: value),
+                  ))
+                : Text(
+                    transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
+                    overflow: TextOverflow.ellipsis,
+                  ),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[4],
-            child: Row(
+            child: editing
+                ? editor(category, (value) => onEditChanged(
+                    transaction.copyWith(category: value),
+                  ))
+                : Row(
               children: [
                 if (isSplit)
                   GestureDetector(
@@ -2989,16 +3092,25 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[5],
-            child: Text(
-              _displaySplitMemo(transaction.memo),
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: editing
+                ? editor(transaction.memo, (value) => onEditChanged(
+                    transaction.copyWith(memo: value),
+                  ))
+                : Text(
+                    _displaySplitMemo(transaction.memo),
+                    overflow: TextOverflow.ellipsis,
+                  ),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[6],
-            child: Text(
+            child: editing
+                ? editor(
+                    (transaction.outflow + transaction.inflow).toStringAsFixed(2),
+                    updateAmount,
+                  )
+                : Text(
               transaction.outflow > 0
                   ? '-${currency.format(transaction.outflow)}'
                   : '+${currency.format(transaction.inflow)}',
@@ -3008,13 +3120,29 @@ class _TransactionDisplayRow {
                     : const Color(0xFF2D8A5F),
                 fontWeight: FontWeight.w700,
               ),
-            ),
+                ),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[7],
-            child: _TransactionStatusIcon(
+            child: editing
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Cancel',
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: onEditCancel,
+                      ),
+                      IconButton(
+                        tooltip: 'Save',
+                        icon: const Icon(Icons.check, size: 18),
+                        onPressed: onEditSave,
+                      ),
+                    ],
+                  )
+                : _TransactionStatusIcon(
               status: transaction.cleared,
               onPressed: () => onStatusChanged(transaction),
               enabled: enabled && !isSplit,
