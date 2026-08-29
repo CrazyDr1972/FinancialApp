@@ -14,7 +14,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.1.42';
+const appVersion = 'v0.1.43';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -119,15 +119,21 @@ class Transaction {
 
   double get net => inflow - outflow;
 
-  Transaction copyWith({String? cleared, String? flag}) => Transaction(
+  Transaction copyWith({
+    String? cleared,
+    String? flag,
+    DateTime? date,
+    double? outflow,
+    double? inflow,
+  }) => Transaction(
     account: account,
-    date: date,
+    date: date ?? this.date,
     payee: payee,
     category: category,
     categoryGroup: categoryGroup,
     memo: memo,
-    outflow: outflow,
-    inflow: inflow,
+    outflow: outflow ?? this.outflow,
+    inflow: inflow ?? this.inflow,
     cleared: cleared ?? this.cleared,
     flag: flag ?? this.flag,
   );
@@ -558,6 +564,121 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         _collapsedSplits.removeAll(keys);
       }
     });
+  }
+
+  Future<void> _showTransactionMenu(
+    Offset position,
+    Transaction transaction,
+    List<Transaction>? splitParts,
+  ) async {
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        MediaQuery.sizeOf(context).width - position.dx,
+        MediaQuery.sizeOf(context).height - position.dy,
+      ),
+      items: const [
+        PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
+        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
+    );
+    if (!mounted) return;
+    if (choice == 'duplicate') {
+      await _duplicateTransaction(transaction, splitParts);
+    } else if (choice == 'delete') {
+      await _deleteTransaction(transaction, splitParts);
+    }
+  }
+
+  Future<void> _duplicateTransaction(
+    Transaction transaction,
+    List<Transaction>? splitParts,
+  ) async {
+    final parts = splitParts ?? [transaction];
+    final initialAmount = parts.fold<double>(
+      0,
+      (sum, item) => sum + item.outflow + item.inflow,
+    );
+    final date = await showDatePicker(
+      context: context,
+      initialDate: transaction.date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (date == null || !mounted) return;
+    final amountController = TextEditingController(
+      text: initialAmount.toStringAsFixed(2),
+    );
+    final amount = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Duplicate transaction'),
+        content: TextField(
+          controller: amountController,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'New amount'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              double.tryParse(amountController.text.replaceAll(',', '.')),
+            ),
+            child: const Text('Duplicate'),
+          ),
+        ],
+      ),
+    );
+    amountController.dispose();
+    if (amount == null || amount < 0 || !mounted) return;
+    final scale = initialAmount == 0 ? 1.0 : amount / initialAmount;
+    final duplicates = parts
+        .map(
+          (item) => item.copyWith(
+            date: date,
+            outflow: item.outflow * scale,
+            inflow: item.inflow * scale,
+          ),
+        )
+        .toList();
+    setState(() => _transactions.addAll(duplicates));
+  }
+
+  Future<void> _deleteTransaction(
+    Transaction transaction,
+    List<Transaction>? splitParts,
+  ) async {
+    final parts = splitParts ?? [transaction];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete transaction?'),
+        content: Text(
+          parts.length > 1
+              ? 'This will delete all ${parts.length} split parts.'
+              : 'This transaction will be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _transactions.removeWhere(parts.contains));
   }
 
   void _cycleFlag(Transaction transaction) {
@@ -1197,6 +1318,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 scheduled: true,
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
+                onContextMenu: _showTransactionMenu,
               ),
             ),
           const SizedBox(height: 12),
@@ -1222,6 +1344,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               scheduled: false,
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
+              onContextMenu: _showTransactionMenu,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1422,6 +1545,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 scheduled: true,
                 transactionImages: _transactionImages,
                 onImageDoubleTap: _pickTransactionImage,
+                onContextMenu: _showTransactionMenu,
               ),
             ),
           const SizedBox(height: 12),
@@ -1454,6 +1578,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               scheduled: false,
               transactionImages: _transactionImages,
               onImageDoubleTap: _pickTransactionImage,
+              onContextMenu: _showTransactionMenu,
             ),
           ),
       ],
@@ -2376,6 +2501,7 @@ class _TransactionTable extends StatelessWidget {
     required this.onFlagPressed,
     required this.transactionImages,
     required this.onImageDoubleTap,
+    required this.onContextMenu,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2397,6 +2523,7 @@ class _TransactionTable extends StatelessWidget {
   final ValueChanged<Transaction> onFlagPressed;
   final Map<Transaction, Uint8List> transactionImages;
   final ValueChanged<Transaction> onImageDoubleTap;
+  final void Function(Offset, Transaction, List<Transaction>?) onContextMenu;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2517,6 +2644,7 @@ class _TransactionTable extends StatelessWidget {
               onFlagPressed: onFlagPressed,
               transactionImages: transactionImages,
               onImageDoubleTap: onImageDoubleTap,
+              onContextMenu: onContextMenu,
               selected: displayRow.isSplit
                   ? displayRow.children!.every(selectedTransactions.contains)
                   : selectedTransactions.contains(displayRow.transaction),
@@ -2546,6 +2674,7 @@ class _TransactionTable extends StatelessWidget {
                   onFlagPressed: onFlagPressed,
                   transactionImages: transactionImages,
                   onImageDoubleTap: onImageDoubleTap,
+                  onContextMenu: onContextMenu,
                   selected: selectedTransactions.contains(child),
                   onSelected: (selected) =>
                       onTransactionSelected(child, selected),
@@ -2653,6 +2782,7 @@ class _TransactionDisplayRow {
     required ValueChanged<Transaction> onFlagPressed,
     required Map<Transaction, Uint8List> transactionImages,
     required ValueChanged<Transaction> onImageDoubleTap,
+    required void Function(Offset, Transaction, List<Transaction>?) onContextMenu,
     required bool selected,
     required ValueChanged<bool> onSelected,
     required bool enabled,
@@ -2692,9 +2822,16 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[3],
-            child: Text(
-              transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
-              overflow: TextOverflow.ellipsis,
+            child: GestureDetector(
+              onSecondaryTapUp: (details) => onContextMenu(
+                details.globalPosition,
+                transaction,
+                children,
+              ),
+              child: Text(
+                transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ),
