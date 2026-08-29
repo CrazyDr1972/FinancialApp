@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.12';
+const appVersion = 'v0.6.13';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3117,31 +3117,16 @@ class _TransactionTable extends StatelessWidget {
 
     final actionsRow = [...emptyCells];
     actionsRow[6] = DataCell(
-      Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          OutlinedButton(
-            onPressed: onCancel,
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(45, 25),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-            child: const Text('Cancel'),
-          ),
-          const SizedBox(width: 6),
-          FilledButton(
-            onPressed: onSave,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(45, 25),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-            child: const Text('Save'),
-          ),
-        ],
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+            const SizedBox(width: 6),
+            FilledButton(onPressed: onSave, child: const Text('Save')),
+          ],
+        ),
       ),
     );
     return [row(cells: amountsRow), row(cells: actionsRow)];
@@ -3374,7 +3359,9 @@ class _TransactionDisplayRow {
                           ),
                           decoration: const InputDecoration(
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            constraints: BoxConstraints(minHeight: 0, maxHeight: 28),
+                            suffixIconConstraints: BoxConstraints.tightFor(width: 24, height: 24),
                             suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
                           ),
                         ),
