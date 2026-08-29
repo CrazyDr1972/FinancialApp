@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.10';
+const appVersion = 'v0.6.11';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3086,7 +3086,7 @@ class _TransactionTable extends StatelessWidget {
       (_) => const DataCell(SizedBox.shrink()),
     );
     final amountsRow = [...emptyCells];
-    amountsRow[1] = DataCell(
+    amountsRow[3] = DataCell(
       TextButton.icon(
         onPressed: onAddSplit,
         style: TextButton.styleFrom(
@@ -3296,7 +3296,7 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[2],
-            child: editing
+            child: editing && !isChild
                 ? editor(dateFormat.format(transaction.date), (value) {
                     final parsed = DateTime.tryParse(
                       value.split('/').reversed.join('-'),
