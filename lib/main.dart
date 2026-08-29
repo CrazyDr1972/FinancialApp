@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.7.14';
+const appVersion = 'v0.8.5';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -823,6 +823,30 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       }
       _editingDraft = transaction;
     });
+    _logSplitEditState(
+      transaction == _editingDraft ? 'parent-field' : 'child-field',
+    );
+  }
+
+  void _logSplitEditState(String source) {
+    final parts = _editingSplitDraft ?? _editingSplitOriginal;
+    if (parts == null || parts.isEmpty || _editingDraft == null) return;
+    final parentNet = _editingDraft!.inflow - _editingDraft!.outflow;
+    final childrenNet = parts.fold<double>(
+      0,
+      (sum, part) => sum + part.inflow - part.outflow,
+    );
+    final remaining = parentNet - childrenNet;
+    debugPrint(
+      '[SplitEdit] source=$source '
+      'parentNet=${parentNet.toStringAsFixed(2)} '
+      'childrenNet=${childrenNet.toStringAsFixed(2)} '
+      'remaining=${remaining.toStringAsFixed(2)} '
+      'outflow=${remaining < 0 ? remaining.abs().toStringAsFixed(2) : '0.00'} '
+      'inflow=${remaining > 0 ? remaining.toStringAsFixed(2) : '0.00'} '
+      'canSave=${remaining.abs() < 0.005} '
+      'parts=${parts.map((part) => (part.inflow - part.outflow).toStringAsFixed(2)).join(',')}',
+    );
   }
 
   void _updateInlineSplitAmount(List<Transaction> parts, double amount) {
@@ -858,6 +882,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           );
       _editingSplitDraft = updated;
     });
+    _logSplitEditState('parent-amount');
   }
 
   void _addInlineSplit() {
