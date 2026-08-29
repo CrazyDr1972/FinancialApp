@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.22';
+const appVersion = 'v0.7.14';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -810,17 +810,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   void _updateInlineEdit(Transaction transaction) {
-    if (_editingSplitOriginal != null && transaction != _editingDraft) {
-      final parts = [...(_editingSplitDraft ?? _editingSplitOriginal!)];
-      final prefix = RegExp(r'^Split \((\d+)/\d+\)').firstMatch(transaction.memo);
-      final index = prefix == null ? -1 : int.parse(prefix.group(1)!) - 1;
-      if (index >= 0 && index < parts.length) {
-        parts[index] = transaction;
-        _editingSplitDraft = parts;
-        return;
+    setState(() {
+      if (_editingSplitOriginal != null && transaction != _editingDraft) {
+        final parts = [...(_editingSplitDraft ?? _editingSplitOriginal!)];
+        final prefix = RegExp(r'^Split \((\d+)/\d+\)').firstMatch(transaction.memo);
+        final index = prefix == null ? -1 : int.parse(prefix.group(1)!) - 1;
+        if (index >= 0 && index < parts.length) {
+          parts[index] = transaction;
+          _editingSplitDraft = parts;
+          return;
+        }
       }
-    }
-    _editingDraft = transaction;
+      _editingDraft = transaction;
+    });
   }
 
   void _updateInlineSplitAmount(List<Transaction> parts, double amount) {
