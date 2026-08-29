@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.19';
+const appVersion = 'v0.6.21';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3069,12 +3069,15 @@ class _TransactionTable extends StatelessWidget {
     required VoidCallback onSave,
     required VoidCallback onCancel,
   }) {
-    final remainingOutflow = (parent.outflow -
-            parts.fold<double>(0, (sum, part) => sum + part.outflow))
-        .abs();
-    final remainingInflow = (parent.inflow -
-            parts.fold<double>(0, (sum, part) => sum + part.inflow))
-        .abs();
+    final parentNet = parent.inflow - parent.outflow;
+    final childrenNet = parts.fold<double>(
+      0,
+      (sum, part) => sum + part.inflow - part.outflow,
+    );
+    final remaining = parentNet - childrenNet;
+    final remainingOutflow = remaining < 0 ? remaining.abs() : 0.0;
+    final remainingInflow = remaining > 0 ? remaining : 0.0;
+    final canSave = remaining.abs() < 0.005;
     final amount = (double value) => Text(
           value.toStringAsFixed(2).replaceAll('.', ','),
           style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
@@ -3138,7 +3141,10 @@ class _TransactionTable extends StatelessWidget {
           children: [
             OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
             const SizedBox(width: 6),
-            FilledButton(onPressed: onSave, child: const Text('Save')),
+            FilledButton(
+              onPressed: canSave ? onSave : null,
+              child: const Text('Save'),
+            ),
           ],
         ),
       ),
