@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.7';
+const appVersion = 'v0.6.8';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -789,15 +789,37 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   void _beginInlineEdit(Transaction transaction, [String? splitKey]) {
+    final splitParts = splitKey == null
+        ? null
+        : _transactions.where((item) {
+            final match = RegExp(r'^Split \(\d+/\d+\)\s*(.*)$').firstMatch(item.memo);
+            if (match == null) return false;
+            final baseMemo = match.group(1)!.trim();
+            final key =
+                '${item.date.year}-${item.date.month}-${item.date.day}|'
+                '${item.account}|$baseMemo';
+            return key == splitKey;
+          }).toList();
     setState(() {
       _editingOriginal = transaction;
       _editingDraft = transaction;
+      _editingSplitOriginal = splitParts;
       _editingSplitDraft = null;
       _editingSplitKey = splitKey;
     });
   }
 
   void _updateInlineEdit(Transaction transaction) {
+    if (_editingSplitOriginal != null && transaction != _editingDraft) {
+      final parts = [...(_editingSplitDraft ?? _editingSplitOriginal!)];
+      final prefix = RegExp(r'^Split \((\d+)/\d+\)').firstMatch(transaction.memo);
+      final index = prefix == null ? -1 : int.parse(prefix.group(1)!) - 1;
+      if (index >= 0 && index < parts.length) {
+        parts[index] = transaction;
+        _editingSplitDraft = parts;
+        return;
+      }
+    }
     _editingDraft = transaction;
   }
 
@@ -832,6 +854,36 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             inflow: amount < 0 ? amount.abs() : 0,
           );
     _editingSplitDraft = updated;
+  }
+
+  void _addInlineSplit() {
+    final original = _editingSplitOriginal;
+    if (original == null || original.isEmpty) return;
+    final parts = _editingSplitDraft ?? original;
+    final first = parts.first;
+    final next = Transaction(
+      account: first.account,
+      flag: '',
+      date: first.date,
+      payee: first.payee,
+      category: '',
+      categoryGroup: '',
+      memo: '',
+      outflow: 0,
+      inflow: 0,
+      cleared: first.cleared,
+    );
+    final updated = [...parts, next];
+    final baseMemo = parts
+        .map((part) => _displaySplitMemo(part.memo))
+        .firstWhere((memo) => memo.isNotEmpty, orElse: () => '');
+    _editingSplitDraft = [
+      for (var index = 0; index < updated.length; index++)
+        updated[index].copyWith(
+          memo: 'Split (${index + 1}/${updated.length})${baseMemo.isEmpty ? '' : ' $baseMemo'}',
+        ),
+    ];
+    setState(() {});
   }
 
   void _cancelInlineEdit() {
@@ -1505,12 +1557,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 editingTransaction: _editingDraft,
                 onEdit: _beginInlineEdit,
                 editingSplitKey: _editingSplitKey,
+                editingSplitDraft: _editingSplitDraft,
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
                 highlightEditing: false,
                 availableCategories: _categories,
                 onEditSplitAmount: _updateInlineSplitAmount,
+                onEditAddSplit: _addInlineSplit,
               ),
             ),
           const SizedBox(height: 12),
@@ -1540,12 +1594,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               editingTransaction: _editingDraft,
               onEdit: _beginInlineEdit,
               editingSplitKey: _editingSplitKey,
+              editingSplitDraft: _editingSplitDraft,
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
               highlightEditing: false,
               availableCategories: _categories,
               onEditSplitAmount: _updateInlineSplitAmount,
+              onEditAddSplit: _addInlineSplit,
             ),
           ),
         if (transactions.isNotEmpty)
@@ -1750,12 +1806,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 editingTransaction: _editingDraft,
                 onEdit: _beginInlineEdit,
                 editingSplitKey: _editingSplitKey,
+                editingSplitDraft: _editingSplitDraft,
                 onEditChanged: _updateInlineEdit,
                 onEditSave: _saveInlineEdit,
                 onEditCancel: _cancelInlineEdit,
                 highlightEditing: false,
                 availableCategories: _categories,
                 onEditSplitAmount: _updateInlineSplitAmount,
+                onEditAddSplit: _addInlineSplit,
               ),
             ),
           const SizedBox(height: 12),
@@ -1792,12 +1850,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               editingTransaction: _editingDraft,
               onEdit: _beginInlineEdit,
               editingSplitKey: _editingSplitKey,
+              editingSplitDraft: _editingSplitDraft,
               onEditChanged: _updateInlineEdit,
               onEditSave: _saveInlineEdit,
               onEditCancel: _cancelInlineEdit,
               highlightEditing: false,
               availableCategories: _categories,
               onEditSplitAmount: _updateInlineSplitAmount,
+              onEditAddSplit: _addInlineSplit,
             ),
           ),
       ],
@@ -2723,6 +2783,7 @@ class _TransactionTable extends StatelessWidget {
     required this.onContextMenu,
     required this.onEdit,
     required this.editingSplitKey,
+    required this.editingSplitDraft,
     required this.editingTransaction,
     required this.onEditChanged,
     required this.onEditSave,
@@ -2730,6 +2791,7 @@ class _TransactionTable extends StatelessWidget {
     required this.highlightEditing,
     required this.availableCategories,
     required this.onEditSplitAmount,
+    required this.onEditAddSplit,
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
@@ -2754,6 +2816,7 @@ class _TransactionTable extends StatelessWidget {
   final void Function(Offset, Transaction, List<Transaction>?) onContextMenu;
   final void Function(Transaction, [String?]) onEdit;
   final String? editingSplitKey;
+  final List<Transaction>? editingSplitDraft;
   final Transaction? editingTransaction;
   final ValueChanged<Transaction> onEditChanged;
   final VoidCallback onEditSave;
@@ -2761,6 +2824,7 @@ class _TransactionTable extends StatelessWidget {
   final bool highlightEditing;
   final List<String> availableCategories;
   final void Function(List<Transaction>, double) onEditSplitAmount;
+  final VoidCallback onEditAddSplit;
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
@@ -2792,7 +2856,9 @@ class _TransactionTable extends StatelessWidget {
       order++;
     }
     for (final key in splitOrder) {
-      final children = splitGroups[key]!;
+      final children = editingSplitKey == key && editingSplitDraft != null
+          ? editingSplitDraft!
+          : splitGroups[key]!;
       if (children.length < 2) {
         rows.add(_TransactionDisplayRow(children.first));
         rowOrders.add(splitFirstOrder[key]!);
@@ -2941,7 +3007,7 @@ class _TransactionTable extends StatelessWidget {
                   : null,
             );
             if (!displayRow.isSplit || displayRow.collapsed) return [parent];
-            return [
+            final childRows = [
               parent,
               ...displayRow.children!.map(
                 (child) => _TransactionDisplayRow(
@@ -2974,6 +3040,18 @@ class _TransactionTable extends StatelessWidget {
                 ),
               ),
             ];
+            final isEditingSplit = editingSplitKey == displayRow.splitKey;
+            if (!isEditingSplit) return childRows;
+            return [
+              ...childRows,
+              _splitEditFooterRow(
+                parent: displayRow.transaction,
+                parts: displayRow.children!,
+                onAddSplit: onEditAddSplit,
+                onSave: onEditSave,
+                onCancel: onEditCancel,
+              ),
+            ];
           })
           .toList(),
           ),
@@ -2981,6 +3059,69 @@ class _TransactionTable extends StatelessWidget {
       ),
     ),
   );
+
+  DataRow _splitEditFooterRow({
+    required Transaction parent,
+    required List<Transaction> parts,
+    required VoidCallback onAddSplit,
+    required VoidCallback onSave,
+    required VoidCallback onCancel,
+  }) {
+    final remainingOutflow = (parent.outflow -
+            parts.fold<double>(0, (sum, part) => sum + part.outflow))
+        .abs();
+    final remainingInflow = (parent.inflow -
+            parts.fold<double>(0, (sum, part) => sum + part.inflow))
+        .abs();
+    final amount = (double value) => Text(
+          value.toStringAsFixed(2).replaceAll('.', ','),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+        );
+    return DataRow(
+      color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
+      cells: [
+        DataCell(
+          SizedBox(
+            width: 180,
+            child: TextButton.icon(
+              onPressed: onAddSplit,
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                alignment: Alignment.centerLeft,
+              ),
+              icon: const Icon(Icons.add_circle, size: 16),
+              label: const Text('Add another split'),
+            ),
+          ),
+        ),
+        for (var index = 1; index < 5; index++)
+          DataCell(const SizedBox.shrink()),
+        DataCell(
+          Row(
+            children: [
+              const Spacer(),
+              const Text(
+                'Amount remaining to assign:',
+                style: TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+              ),
+            ],
+          ),
+        ),
+        DataCell(Align(alignment: Alignment.centerRight, child: amount(remainingOutflow))),
+        DataCell(Align(alignment: Alignment.centerRight, child: amount(remainingInflow))),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+              const SizedBox(width: 6),
+              FilledButton(onPressed: onSave, child: const Text('Save')),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _columnHeader(int index, String label) => MouseRegion(
     cursor: SystemMouseCursors.resizeColumn,
@@ -3263,21 +3404,7 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[8],
             child: editing
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Cancel',
-                        icon: const Icon(Icons.close, size: 18),
-                        onPressed: onEditCancel,
-                      ),
-                      IconButton(
-                        tooltip: 'Save',
-                        icon: const Icon(Icons.check, size: 18),
-                        onPressed: onEditSave,
-                      ),
-                    ],
-                  )
+                ? const SizedBox.shrink()
                 : _TransactionStatusIcon(
               status: transaction.cleared,
               onPressed: () => onStatusChanged(transaction),
