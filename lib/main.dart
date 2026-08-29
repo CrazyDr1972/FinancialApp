@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.6.11';
+const appVersion = 'v0.6.12';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -3116,13 +3116,31 @@ class _TransactionTable extends StatelessWidget {
     ));
 
     final actionsRow = [...emptyCells];
-    actionsRow[8] = DataCell(
+    actionsRow[6] = DataCell(
       Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+          OutlinedButton(
+            onPressed: onCancel,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(45, 25),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12),
+            ),
+            child: const Text('Cancel'),
+          ),
           const SizedBox(width: 6),
-          FilledButton(onPressed: onSave, child: const Text('Save')),
+          FilledButton(
+            onPressed: onSave,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(45, 25),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12),
+            ),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
