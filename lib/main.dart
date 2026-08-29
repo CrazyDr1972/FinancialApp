@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v0.9.1';
+const appVersion = 'v0.9.2';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -297,6 +297,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     _loadCollapsedGroups();
     _loadSidebarWidth();
     _loadColumnWidths();
+    _loadTransactionSort();
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
       windowManager.addListener(this);
     }
@@ -342,10 +343,22 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     );
   }
 
+  Future<void> _loadTransactionSort() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final column = preferences.getInt('transaction-sort-column');
+      final ascending = preferences.getBool('transaction-sort-ascending');
+      if (!mounted || column == null || ascending == null) return;
+      if (column < 0 || column > 8) return;
+      setState(() {
+        _transactionSortColumn = column;
+        _transactionSortAscending = ascending;
+      });
+    } catch (_) {}
+  }
+
   Future<void> _pickTransactionImage(Transaction transaction) async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-    );
+    final result = await FilePicker.pickFiles(type: FileType.image);
     final bytes = result.isEmpty ? null : await result.single.readAsBytes();
     if (bytes == null || !mounted) return;
     setState(() => _transactionImages[transaction] = bytes);
@@ -508,6 +521,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       _transactionSortColumn = column;
       _transactionSortAscending = ascending;
     });
+    SharedPreferences.getInstance().then((preferences) async {
+      await preferences.setInt('transaction-sort-column', column);
+      await preferences.setBool('transaction-sort-ascending', ascending);
+    });
   }
 
   void _setTransactionSelected(Transaction transaction, bool selected) {
@@ -522,10 +539,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   void _clearSelection() => setState(_selectedTransactions.clear);
 
-  void _setSplitSelected(
-    List<Transaction> transactions,
-    bool selected,
-  ) {
+  void _setSplitSelected(List<Transaction> transactions, bool selected) {
     setState(() {
       if (selected) {
         _selectedTransactions.addAll(transactions);
@@ -676,8 +690,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   String _memoWithTotal(String memo, double amount) {
     final formatted = amount.toStringAsFixed(2).replaceAll('.', ',');
-    final totalPattern = RegExp(r'ΣΥΝΟΛΟ\s*:\s*[-+]?\d+(?:[.,]\d+)?',
-        caseSensitive: false);
+    final totalPattern = RegExp(
+      r'ΣΥΝΟΛΟ\s*:\s*[-+]?\d+(?:[.,]\d+)?',
+      caseSensitive: false,
+    );
     if (totalPattern.hasMatch(memo)) {
       return memo.replaceFirst(totalPattern, 'ΣΥΝΟΛΟ: $formatted');
     }
@@ -747,18 +763,29 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                     if (picked != null) setDialogState(() => editDate = picked);
                   },
                 ),
-                TextField(controller: payee, decoration: const InputDecoration(labelText: 'Payee')),
-                TextField(controller: memo, decoration: const InputDecoration(labelText: 'Memo')),
+                TextField(
+                  controller: payee,
+                  decoration: const InputDecoration(labelText: 'Payee'),
+                ),
+                TextField(
+                  controller: memo,
+                  decoration: const InputDecoration(labelText: 'Memo'),
+                ),
                 TextField(
                   controller: amount,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(labelText: 'Amount'),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 final value = double.tryParse(amount.text.replaceAll(',', '.'));
@@ -792,7 +819,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     final splitParts = splitKey == null
         ? null
         : _transactions.where((item) {
-            final match = RegExp(r'^Split \(\d+/\d+\)\s*(.*)$').firstMatch(item.memo);
+            final match = RegExp(
+              r'^Split \(\d+/\d+\)\s*(.*)$',
+            ).firstMatch(item.memo);
             if (match == null) return false;
             final baseMemo = match.group(1)!.trim();
             final key =
@@ -813,7 +842,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     setState(() {
       if (_editingSplitOriginal != null && transaction != _editingDraft) {
         final parts = [...(_editingSplitDraft ?? _editingSplitOriginal!)];
-        final prefix = RegExp(r'^Split \((\d+)/\d+\)').firstMatch(transaction.memo);
+        final prefix = RegExp(
+          r'^Split \((\d+)/\d+\)',
+        ).firstMatch(transaction.memo);
         final index = prefix == null ? -1 : int.parse(prefix.group(1)!) - 1;
         if (index >= 0 && index < parts.length) {
           parts[index] = transaction;
@@ -852,34 +883,34 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   void _updateInlineSplitAmount(List<Transaction> parts, double amount) {
     setState(() {
       _editingSplitOriginal ??= parts;
-    final totalCents = (amount.abs() * 100).round();
-    final weights = parts
-        .map((part) => ((part.outflow + part.inflow) * 100).round())
-        .toList();
-    final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
-    var assigned = 0;
-    final updated = <Transaction>[];
-    for (var index = 0; index < parts.length; index++) {
-      final cents = index == parts.length - 1
-          ? totalCents - assigned
-          : weightTotal == 0
-          ? 0
-          : (weights[index] * totalCents / weightTotal).round();
-      assigned += cents;
-      final value = cents / 100;
-      updated.add(
-        parts[index].copyWith(
-          outflow: amount >= 0 ? value : 0,
-          inflow: amount < 0 ? value : 0,
-        ),
-      );
-    }
-    _editingDraft = _editingDraft == null
-        ? null
-        : _editingDraft!.copyWith(
-            outflow: amount >= 0 ? amount : 0,
-            inflow: amount < 0 ? amount.abs() : 0,
-          );
+      final totalCents = (amount.abs() * 100).round();
+      final weights = parts
+          .map((part) => ((part.outflow + part.inflow) * 100).round())
+          .toList();
+      final weightTotal = weights.fold<int>(0, (sum, value) => sum + value);
+      var assigned = 0;
+      final updated = <Transaction>[];
+      for (var index = 0; index < parts.length; index++) {
+        final cents = index == parts.length - 1
+            ? totalCents - assigned
+            : weightTotal == 0
+            ? 0
+            : (weights[index] * totalCents / weightTotal).round();
+        assigned += cents;
+        final value = cents / 100;
+        updated.add(
+          parts[index].copyWith(
+            outflow: amount >= 0 ? value : 0,
+            inflow: amount < 0 ? value : 0,
+          ),
+        );
+      }
+      _editingDraft = _editingDraft == null
+          ? null
+          : _editingDraft!.copyWith(
+              outflow: amount >= 0 ? amount : 0,
+              inflow: amount < 0 ? amount.abs() : 0,
+            );
       _editingSplitDraft = updated;
     });
     _logSplitEditState('parent-amount');
@@ -909,7 +940,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     _editingSplitDraft = [
       for (var index = 0; index < updated.length; index++)
         updated[index].copyWith(
-          memo: 'Split (${index + 1}/${updated.length})${baseMemo.isEmpty ? '' : ' $baseMemo'}',
+          memo:
+              'Split (${index + 1}/${updated.length})${baseMemo.isEmpty ? '' : ' $baseMemo'}',
         ),
     ];
     setState(() {});
@@ -941,12 +973,20 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             )
             .toList();
         _transactions.addAll(savedParts);
+        _selectedTransactions
+          ..clear()
+          ..addAll(savedParts);
         debugPrint(
           '[SplitEdit] save parts=${savedParts.map((part) => '${part.outflow.toStringAsFixed(2)}/${part.inflow.toStringAsFixed(2)}').join(',')}',
         );
       } else {
         final index = _transactions.indexOf(original);
-        if (index >= 0) _transactions[index] = draft;
+        if (index >= 0) {
+          _transactions[index] = draft;
+          _selectedTransactions
+            ..clear()
+            ..add(draft);
+        }
       }
       _editingOriginal = null;
       _editingDraft = null;
@@ -1060,9 +1100,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     final lastMonth = monthOf(DateTime.now());
     final monthlyChanges = <DateTime, List<Transaction>>{};
     for (final transaction in relevant) {
-      monthlyChanges.putIfAbsent(monthOf(transaction.date), () => []).add(
-        transaction,
-      );
+      monthlyChanges
+          .putIfAbsent(monthOf(transaction.date), () => [])
+          .add(transaction);
     }
 
     // Rebuild each account's balance first. This preserves Starting Balance
@@ -1192,8 +1232,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   String _registerFromZip(List<int> bytes) {
     final archive = ZipDecoder().decodeBytes(bytes);
     final register = archive.files.where((file) {
-      return file.isFile &&
-          file.name.toLowerCase().endsWith('register.csv');
+      return file.isFile && file.name.toLowerCase().endsWith('register.csv');
     }).firstOrNull;
     if (register == null) {
       throw const FormatException('Το ZIP δεν περιέχει Register.csv.');
@@ -1404,7 +1443,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   Widget _buildContent(bool wide) {
-    final showHeader = !(_section == 2 && _reportMode == 1) &&
+    final showHeader =
+        !(_section == 2 && _reportMode == 1) &&
         !(_section == 1 && _selectedAccount != null);
     return CustomScrollView(
       slivers: [
@@ -1568,9 +1608,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             title: 'Μελλοντικές συναλλαγές',
             count: futureTransactions.length,
             collapsed: _futureTransactionsCollapsed,
-            onToggle: () => _setFutureTransactionsCollapsed(
-              !_futureTransactionsCollapsed,
-            ),
+            onToggle: () =>
+                _setFutureTransactionsCollapsed(!_futureTransactionsCollapsed),
           ),
           if (!_futureTransactionsCollapsed)
             Card(
@@ -1715,10 +1754,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               label: const Text('Επεξεργασία'),
             ),
             const SizedBox(width: 8),
-            FilledButton(
-              onPressed: () {},
-              child: const Text('Reconcile'),
-            ),
+            FilledButton(onPressed: () {}, child: const Text('Reconcile')),
           ],
         ),
         const SizedBox(height: 20),
@@ -1729,23 +1765,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               alignment: Alignment.centerLeft,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-              children: [
-                _AccountBalanceMetric(
-                  label: 'Cleared Balance',
-                  value: _currency.format(cleared),
-                ),
-                const _BalanceOperator(operator: '+'),
-                _AccountBalanceMetric(
-                  label: 'Uncleared Balance',
-                  value: _currency.format(uncleared),
-                ),
-                const _BalanceOperator(operator: '='),
-                _AccountBalanceMetric(
-                  label: 'Working Balance',
-                  value: _currency.format(working),
-                  emphasized: true,
-                ),
-              ],
+                children: [
+                  _AccountBalanceMetric(
+                    label: 'Cleared Balance',
+                    value: _currency.format(cleared),
+                  ),
+                  const _BalanceOperator(operator: '+'),
+                  _AccountBalanceMetric(
+                    label: 'Uncleared Balance',
+                    value: _currency.format(uncleared),
+                  ),
+                  const _BalanceOperator(operator: '='),
+                  _AccountBalanceMetric(
+                    label: 'Working Balance',
+                    value: _currency.format(working),
+                    emphasized: true,
+                  ),
+                ],
               ),
             ),
           ),
@@ -1817,9 +1853,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             title: 'Μελλοντικές συναλλαγές',
             count: future.length,
             collapsed: _futureTransactionsCollapsed,
-            onToggle: () => _setFutureTransactionsCollapsed(
-              !_futureTransactionsCollapsed,
-            ),
+            onToggle: () =>
+                _setFutureTransactionsCollapsed(!_futureTransactionsCollapsed),
           ),
           if (!_futureTransactionsCollapsed)
             Card(
@@ -2799,9 +2834,8 @@ class _FilterDropdown extends StatelessWidget {
   );
 }
 
-String _displaySplitMemo(String memo) => memo
-    .replaceFirst(RegExp(r'^Split \(\d+/\d+\)\s*'), '')
-    .trim();
+String _displaySplitMemo(String memo) =>
+    memo.replaceFirst(RegExp(r'^Split \(\d+/\d+\)\s*'), '').trim();
 
 String _formatAmountInput(double value) =>
     NumberFormat('#,##0.00', 'el_GR').format(value);
@@ -2880,7 +2914,6 @@ class _TransactionTable extends StatelessWidget {
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
-
 
   List<_TransactionDisplayRow> _displayRows() {
     final rows = <_TransactionDisplayRow>[];
@@ -2980,6 +3013,7 @@ class _TransactionTable extends StatelessWidget {
     }
     return rendered;
   }
+
   @override
   Widget build(BuildContext context) => Scrollbar(
     thumbVisibility: false,
@@ -3003,113 +3037,115 @@ class _TransactionTable extends StatelessWidget {
             onEdit(rows[rowIndex].transaction, rows[rowIndex].splitKey);
           },
           child: DataTable(
-      headingRowHeight: 34,
-      dataRowMinHeight: 34,
-      dataRowMaxHeight: 34,
-      horizontalMargin: 8,
-      columnSpacing: 12,
-      checkboxHorizontalMargin: 8,
-      dataRowColor: scheduled
-          ? const MaterialStatePropertyAll(Color(0xFFFBF8F0))
-          : null,
-      headingRowColor: scheduled
-          ? const MaterialStatePropertyAll(Color(0xFFF3F0E7))
-          : null,
-      sortColumnIndex: sortColumnIndex,
-      sortAscending: sortAscending,
-      columns: [
-        DataColumn(label: _iconColumnHeader(0, Icons.flag_outlined)),
-        DataColumn(label: _iconColumnHeader(1, Icons.image_outlined)),
-        DataColumn(label: _columnHeader(2, 'Ημερομηνία')),
-        DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
-        DataColumn(label: _columnHeader(4, 'Κατηγορία')),
-        DataColumn(label: _columnHeader(5, 'Memo')),
-        DataColumn(label: _columnHeader(6, 'Outflow')),
-        DataColumn(label: _columnHeader(7, 'Inflow')),
-        DataColumn(label: _columnHeader(8, 'Κατάσταση')),
-      ],
-      rows: _displayRows().expand((displayRow) {
-            final parent = displayRow.toDataRow(
-              columnWidths: columnWidths,
-              dateFormat: dateFormat,
-              currency: currency,
-              onStatusChanged: onStatusChanged,
-              onFlagPressed: onFlagPressed,
-              transactionImages: transactionImages,
-              onImageDoubleTap: onImageDoubleTap,
-              onContextMenu: onContextMenu,
-              editingTransaction: editingTransaction,
-              editingSplitKey: editingSplitKey,
-              highlightEditing: displayRow.isSplit &&
-                  editingTransaction == displayRow.transaction,
-              onEditChanged: onEditChanged,
-              onEditSave: onEditSave,
-              onEditCancel: onEditCancel,
-              availableCategories: availableCategories,
-              onEditSplitAmount: onEditSplitAmount,
-              selected: displayRow.isSplit
-                  ? displayRow.children!.every(selectedTransactions.contains)
-                  : selectedTransactions.contains(displayRow.transaction),
-              onSelected: (selected) => displayRow.isSplit
-                  ? onSplitSelected(displayRow.children!, selected)
-                  : onTransactionSelected(displayRow.transaction, selected),
-              enabled: true,
-              onSplitToggled: displayRow.isSplit
-                  ? () => onSplitToggled(
-                      displayRow.splitKey!,
-                      !displayRow.collapsed,
-                    )
-                  : null,
-            );
-            if (!displayRow.isSplit || displayRow.collapsed) return [parent];
-            final childRows = [
-              parent,
-              ...displayRow.children!.map(
-                (child) => _TransactionDisplayRow(
-                  child,
-                  childOnly: true,
-                  splitKey: displayRow.splitKey,
-                ).toDataRow(
-                  columnWidths: columnWidths,
-                  currency: currency,
-                  dateFormat: dateFormat,
-                  onStatusChanged: onStatusChanged,
-                  onFlagPressed: onFlagPressed,
-                  transactionImages: transactionImages,
-                  onImageDoubleTap: onImageDoubleTap,
-                  onContextMenu: onContextMenu,
-                  editingTransaction: editingTransaction,
-                  editingSplitKey: editingSplitKey,
-                  highlightEditing: displayRow.isSplit &&
-                      editingTransaction == displayRow.transaction,
-                  onEditChanged: onEditChanged,
-                  onEditSave: onEditSave,
-                  onEditCancel: onEditCancel,
-                  availableCategories: availableCategories,
-                  onEditSplitAmount: onEditSplitAmount,
-                  selected: selectedTransactions.contains(child),
-                  onSelected: (selected) =>
-                      onTransactionSelected(child, selected),
-                  enabled: true,
-                  onSplitToggled: null,
-                ),
-              ),
-            ];
-            final isEditingSplit = editingSplitKey == displayRow.splitKey;
-            if (!isEditingSplit) return childRows;
-            return [
-              ...childRows,
-              ..._splitEditFooterRows(
+            headingRowHeight: 34,
+            dataRowMinHeight: 34,
+            dataRowMaxHeight: 34,
+            horizontalMargin: 8,
+            columnSpacing: 12,
+            checkboxHorizontalMargin: 8,
+            dataRowColor: scheduled
+                ? const MaterialStatePropertyAll(Color(0xFFFBF8F0))
+                : null,
+            headingRowColor: scheduled
+                ? const MaterialStatePropertyAll(Color(0xFFF3F0E7))
+                : null,
+            sortColumnIndex: sortColumnIndex,
+            sortAscending: sortAscending,
+            columns: [
+              DataColumn(label: _iconColumnHeader(0, Icons.flag_outlined)),
+              DataColumn(label: _iconColumnHeader(1, Icons.image_outlined)),
+              DataColumn(label: _columnHeader(2, 'Ημερομηνία')),
+              DataColumn(label: _columnHeader(3, 'Πληρωτής / Έμπορος')),
+              DataColumn(label: _columnHeader(4, 'Κατηγορία')),
+              DataColumn(label: _columnHeader(5, 'Memo')),
+              DataColumn(label: _columnHeader(6, 'Outflow')),
+              DataColumn(label: _columnHeader(7, 'Inflow')),
+              DataColumn(label: _columnHeader(8, 'Κατάσταση')),
+            ],
+            rows: _displayRows().expand((displayRow) {
+              final parent = displayRow.toDataRow(
                 columnWidths: columnWidths,
-                parent: displayRow.transaction,
-                parts: displayRow.children!,
-                onAddSplit: onEditAddSplit,
-                onSave: onEditSave,
-                onCancel: onEditCancel,
-              ),
-            ];
-          })
-          .toList(),
+                dateFormat: dateFormat,
+                currency: currency,
+                onStatusChanged: onStatusChanged,
+                onFlagPressed: onFlagPressed,
+                transactionImages: transactionImages,
+                onImageDoubleTap: onImageDoubleTap,
+                onContextMenu: onContextMenu,
+                editingTransaction: editingTransaction,
+                editingSplitKey: editingSplitKey,
+                highlightEditing:
+                    displayRow.isSplit &&
+                    editingTransaction == displayRow.transaction,
+                onEditChanged: onEditChanged,
+                onEditSave: onEditSave,
+                onEditCancel: onEditCancel,
+                availableCategories: availableCategories,
+                onEditSplitAmount: onEditSplitAmount,
+                selected: displayRow.isSplit
+                    ? displayRow.children!.every(selectedTransactions.contains)
+                    : selectedTransactions.contains(displayRow.transaction),
+                onSelected: (selected) => displayRow.isSplit
+                    ? onSplitSelected(displayRow.children!, selected)
+                    : onTransactionSelected(displayRow.transaction, selected),
+                enabled: true,
+                onSplitToggled: displayRow.isSplit
+                    ? () => onSplitToggled(
+                        displayRow.splitKey!,
+                        !displayRow.collapsed,
+                      )
+                    : null,
+              );
+              if (!displayRow.isSplit || displayRow.collapsed) return [parent];
+              final childRows = [
+                parent,
+                ...displayRow.children!.map(
+                  (child) =>
+                      _TransactionDisplayRow(
+                        child,
+                        childOnly: true,
+                        splitKey: displayRow.splitKey,
+                      ).toDataRow(
+                        columnWidths: columnWidths,
+                        currency: currency,
+                        dateFormat: dateFormat,
+                        onStatusChanged: onStatusChanged,
+                        onFlagPressed: onFlagPressed,
+                        transactionImages: transactionImages,
+                        onImageDoubleTap: onImageDoubleTap,
+                        onContextMenu: onContextMenu,
+                        editingTransaction: editingTransaction,
+                        editingSplitKey: editingSplitKey,
+                        highlightEditing:
+                            displayRow.isSplit &&
+                            editingTransaction == displayRow.transaction,
+                        onEditChanged: onEditChanged,
+                        onEditSave: onEditSave,
+                        onEditCancel: onEditCancel,
+                        availableCategories: availableCategories,
+                        onEditSplitAmount: onEditSplitAmount,
+                        selected: selectedTransactions.contains(child),
+                        onSelected: (selected) =>
+                            onTransactionSelected(child, selected),
+                        enabled: true,
+                        onSplitToggled: null,
+                      ),
+                ),
+              ];
+              final isEditingSplit = editingSplitKey == displayRow.splitKey;
+              if (!isEditingSplit) return childRows;
+              return [
+                ...childRows,
+                ..._splitEditFooterRows(
+                  columnWidths: columnWidths,
+                  parent: displayRow.transaction,
+                  parts: displayRow.children!,
+                  onAddSplit: onEditAddSplit,
+                  onSave: onEditSave,
+                  onCancel: onEditCancel,
+                ),
+              ];
+            }).toList(),
           ),
         ),
       ),
@@ -3134,17 +3170,17 @@ class _TransactionTable extends StatelessWidget {
     final remainingInflow = remaining > 0 ? remaining : 0.0;
     final canSave = remaining.abs() < 0.005;
     final amount = (double value) => Text(
-          _formatAmountInput(value),
-          style: TextStyle(
-            fontSize: 13,
-            color: const Color(0xFF102A43),
-            fontWeight: value > 0 ? FontWeight.w700 : FontWeight.w400,
-          ),
-        );
+      _formatAmountInput(value),
+      style: TextStyle(
+        fontSize: 13,
+        color: const Color(0xFF102A43),
+        fontWeight: value > 0 ? FontWeight.w700 : FontWeight.w400,
+      ),
+    );
     DataRow row({required List<DataCell> cells}) => DataRow(
-          color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
-          cells: cells,
-        );
+      color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
+      cells: cells,
+    );
     final emptyCells = List<DataCell>.generate(
       9,
       (_) => const DataCell(SizedBox.shrink()),
@@ -3170,26 +3206,30 @@ class _TransactionTable extends StatelessWidget {
         ),
       ),
     );
-    amountsRow[6] = DataCell(SizedBox(
-      width: columnWidths[6],
-      child: Padding(
-        padding: const EdgeInsets.only(right: 15),
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: amount(remainingOutflow),
+    amountsRow[6] = DataCell(
+      SizedBox(
+        width: columnWidths[6],
+        child: Padding(
+          padding: const EdgeInsets.only(right: 15),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: amount(remainingOutflow),
+          ),
         ),
       ),
-    ));
-    amountsRow[7] = DataCell(SizedBox(
-      width: columnWidths[7],
-      child: Padding(
-        padding: const EdgeInsets.only(right: 15),
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: amount(remainingInflow),
+    );
+    amountsRow[7] = DataCell(
+      SizedBox(
+        width: columnWidths[7],
+        child: Padding(
+          padding: const EdgeInsets.only(right: 15),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: amount(remainingInflow),
+          ),
         ),
       ),
-    ));
+    );
 
     final actionsRow = [...emptyCells];
     actionsRow[6] = DataCell(
@@ -3214,67 +3254,61 @@ class _TransactionTable extends StatelessWidget {
   Widget _columnHeader(int index, String label) => MouseRegion(
     cursor: SystemMouseCursors.resizeColumn,
     child: GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: () => onSort(
-      index,
-      sortColumnIndex == index ? !sortAscending : true,
-    ),
-    onHorizontalDragUpdate: (details) => onColumnWidthChanged(
-      index,
-      columnWidths[index] + details.delta.dx,
-    ),
-    child: SizedBox(
-      height: 34,
-      width: columnWidths[index],
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+      behavior: HitTestBehavior.opaque,
+      onTap: () =>
+          onSort(index, sortColumnIndex == index ? !sortAscending : true),
+      onHorizontalDragUpdate: (details) =>
+          onColumnWidthChanged(index, columnWidths[index] + details.delta.dx),
+      child: SizedBox(
+        height: 34,
+        width: columnWidths[index],
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          if (sortColumnIndex == index)
-            Icon(
-              sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-              size: 20,
-              color: const Color(0xFF52606D),
-            ),
-          Container(width: 2, color: const Color(0xFFD8E0E8)),
-        ],
+            const SizedBox(width: 6),
+            if (sortColumnIndex == index)
+              Icon(
+                sortAscending ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                size: 20,
+                color: const Color(0xFF52606D),
+              ),
+            Container(width: 2, color: const Color(0xFFD8E0E8)),
+          ],
+        ),
       ),
-    ),
     ),
   );
 
   Widget _iconColumnHeader(int index, IconData icon) => MouseRegion(
     cursor: SystemMouseCursors.resizeColumn,
     child: GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onHorizontalDragUpdate: (details) => onColumnWidthChanged(
-      index,
-      columnWidths[index] + details.delta.dx,
-    ),
-    child: SizedBox(
-      height: 34,
-      width: columnWidths[index],
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(icon, size: 17, color: const Color(0xFF52606D)),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Container(width: 2, color: const Color(0xFFD8E0E8)),
-          ),
-        ],
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragUpdate: (details) =>
+          onColumnWidthChanged(index, columnWidths[index] + details.delta.dx),
+      child: SizedBox(
+        height: 34,
+        width: columnWidths[index],
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(icon, size: 17, color: const Color(0xFF52606D)),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(width: 2, color: const Color(0xFFD8E0E8)),
+            ),
+          ],
+        ),
       ),
-    ),
     ),
   );
 }
@@ -3304,7 +3338,8 @@ class _TransactionDisplayRow {
     required ValueChanged<Transaction> onFlagPressed,
     required Map<Transaction, Uint8List> transactionImages,
     required ValueChanged<Transaction> onImageDoubleTap,
-    required void Function(Offset, Transaction, List<Transaction>?) onContextMenu,
+    required void Function(Offset, Transaction, List<Transaction>?)
+    onContextMenu,
     required Transaction? editingTransaction,
     required String? editingSplitKey,
     required ValueChanged<Transaction> onEditChanged,
@@ -3318,9 +3353,14 @@ class _TransactionDisplayRow {
     required bool enabled,
     required VoidCallback? onSplitToggled,
   }) {
-    final editing = editingTransaction == transaction ||
+    final editing =
+        editingTransaction == transaction ||
         (editingSplitKey != null && editingSplitKey == splitKey);
-    final splitPrefix = RegExp(r'^(Split \(\d+/\d+\)\s*)').firstMatch(transaction.memo)?.group(1) ?? '';
+    final splitPrefix =
+        RegExp(
+          r'^(Split \(\d+/\d+\)\s*)',
+        ).firstMatch(transaction.memo)?.group(1) ??
+        '';
     Widget editor(
       String value,
       ValueChanged<String> onChanged, {
@@ -3342,12 +3382,15 @@ class _TransactionDisplayRow {
       if (children != null) {
         onEditSplitAmount(children!, signed);
       } else {
-        onEditChanged(transaction.copyWith(
-          outflow: signed >= 0 ? signed : 0,
-          inflow: signed < 0 ? signed.abs() : 0,
-        ));
+        onEditChanged(
+          transaction.copyWith(
+            outflow: signed >= 0 ? signed : 0,
+            inflow: signed < 0 ? signed.abs() : 0,
+          ),
+        );
       }
     }
+
     String editAmount(double value) => _formatAmountInput(value);
     Widget displayAmount(double value, Color color) => value == 0
         ? const SizedBox.shrink()
@@ -3406,11 +3449,15 @@ class _TransactionDisplayRow {
           SizedBox(
             width: columnWidths[3],
             child: editing
-                ? editor(transaction.payee, (value) => onEditChanged(
-                    transaction.copyWith(payee: value),
-                  ))
+                ? editor(
+                    transaction.payee,
+                    (value) =>
+                        onEditChanged(transaction.copyWith(payee: value)),
+                  )
                 : Text(
-                    transaction.payee.isEmpty ? 'Χωρίς όνομα' : transaction.payee,
+                    transaction.payee.isEmpty
+                        ? 'Χωρίς όνομα'
+                        : transaction.payee,
                     overflow: TextOverflow.ellipsis,
                   ),
           ),
@@ -3444,42 +3491,58 @@ class _TransactionDisplayRow {
                         TextField(
                           controller: controller,
                           focusNode: focusNode,
-                          style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF102A43),
+                          ),
                           onChanged: (value) => onEditChanged(
                             transaction.copyWith(category: value),
                           ),
                           decoration: const InputDecoration(
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                            constraints: BoxConstraints(minHeight: 0, maxHeight: 28),
-                            suffixIconConstraints: BoxConstraints.tightFor(width: 24, height: 24),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            constraints: BoxConstraints(
+                              minHeight: 0,
+                              maxHeight: 28,
+                            ),
+                            suffixIconConstraints: BoxConstraints.tightFor(
+                              width: 24,
+                              height: 24,
+                            ),
                             suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
                           ),
                         ),
                   )
                 : Row(
-              children: [
-                if (isSplit)
-                  GestureDetector(
-                    onTap: onSplitToggled,
-                    child: Icon(
-                      collapsed ? Icons.chevron_right : Icons.expand_more,
-                      size: 18,
-                    ),
+                    children: [
+                      if (isSplit)
+                        GestureDetector(
+                          onTap: onSplitToggled,
+                          child: Icon(
+                            collapsed ? Icons.chevron_right : Icons.expand_more,
+                            size: 18,
+                          ),
+                        ),
+                      Expanded(
+                        child: Text(category, overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
                   ),
-                Expanded(
-                  child: Text(category, overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
           ),
         ),
         DataCell(
           SizedBox(
             width: columnWidths[5],
             child: editing
-                ? editor(transaction.memo.replaceFirst(splitPrefix, ''), (value) =>
-                    onEditChanged(transaction.copyWith(memo: '$splitPrefix$value')))
+                ? editor(
+                    transaction.memo.replaceFirst(splitPrefix, ''),
+                    (value) => onEditChanged(
+                      transaction.copyWith(memo: '$splitPrefix$value'),
+                    ),
+                  )
                 : Text(
                     _displaySplitMemo(transaction.memo),
                     overflow: TextOverflow.ellipsis,
@@ -3514,10 +3577,10 @@ class _TransactionDisplayRow {
             child: editing
                 ? const SizedBox.shrink()
                 : _TransactionStatusIcon(
-              status: transaction.cleared,
-              onPressed: () => onStatusChanged(transaction),
-              enabled: enabled && !isSplit,
-            ),
+                    status: transaction.cleared,
+                    onPressed: () => onStatusChanged(transaction),
+                    enabled: enabled && !isSplit,
+                  ),
           ),
         ),
       ],
@@ -3568,17 +3631,17 @@ class _AmountEditorState extends State<_AmountEditor> {
 
   @override
   Widget build(BuildContext context) => TextField(
-        controller: _controller,
-        focusNode: _focusNode,
-        textAlign: TextAlign.right,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
-        onChanged: widget.onChanged,
-        decoration: const InputDecoration(
-          isDense: true,
-          contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-        ),
-      );
+    controller: _controller,
+    focusNode: _focusNode,
+    textAlign: TextAlign.right,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    style: const TextStyle(fontSize: 13, color: Color(0xFF102A43)),
+    onChanged: widget.onChanged,
+    decoration: const InputDecoration(
+      isDense: true,
+      contentPadding: EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+    ),
+  );
 }
 
 class _TransactionImageCell extends StatelessWidget {
@@ -3596,14 +3659,14 @@ class _TransactionImageCell extends StatelessWidget {
       onEnter: bytes == null
           ? null
           : (_) => showDialog<void>(
-                context: context,
-                builder: (_) => Dialog(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Image.memory(bytes!, fit: BoxFit.contain),
-                  ),
+              context: context,
+              builder: (_) => Dialog(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Image.memory(bytes!, fit: BoxFit.contain),
                 ),
               ),
+            ),
       child: GestureDetector(
         onDoubleTap: onDoubleTap,
         child: Center(child: image),
@@ -3632,11 +3695,7 @@ class _TransactionFlagIcon extends StatelessWidget {
       tooltip: color == null ? 'Flag' : '$flag flag - κλικ για αλλαγή',
       padding: EdgeInsets.zero,
       onPressed: onPressed,
-      icon: Icon(
-        Icons.flag,
-        size: 18,
-        color: color ?? const Color(0xFFB0B7C3),
-      ),
+      icon: Icon(Icons.flag, size: 18, color: color ?? const Color(0xFFB0B7C3)),
     );
   }
 }
@@ -3712,7 +3771,10 @@ class _SelectionActionBar extends StatelessWidget {
         TextButton.icon(
           onPressed: () {},
           icon: const Icon(Icons.category, color: Colors.white, size: 16),
-          label: const Text('Categorize', style: TextStyle(color: Colors.white)),
+          label: const Text(
+            'Categorize',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
         TextButton.icon(
           onPressed: () {},
