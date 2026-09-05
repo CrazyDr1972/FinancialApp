@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.6';
+const appVersion = 'v1.0.7';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1227,6 +1227,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         final index = _transactions.indexOf(original);
         if (index >= 0) {
           _transactions[index] = draft;
+          _syncTransferMetadata(draft);
           _selectedTransactions
             ..clear()
             ..add(draft);
@@ -1683,8 +1684,27 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
         ? 'Uncleared'
         : 'Cleared';
     setState(() {
-      _transactions[index] = transaction.copyWith(cleared: nextStatus);
+      final updated = transaction.copyWith(cleared: nextStatus);
+      _transactions[index] = updated;
+      _syncTransferMetadata(updated);
     });
+  }
+
+  void _syncTransferMetadata(Transaction source) {
+    final linkId = source.transferLinkId;
+    if (linkId == null) return;
+    for (var index = 0; index < _transactions.length; index++) {
+      final item = _transactions[index];
+      if (item.transferLinkId == linkId && item != source) {
+        _transactions[index] = item.copyWith(
+          date: source.date,
+          memo: source.memo,
+          cleared: source.cleared,
+          outflow: source.inflow,
+          inflow: source.outflow,
+        );
+      }
+    }
   }
 
   Widget _buildContent(bool wide) {
