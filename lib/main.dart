@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.5';
+const appVersion = 'v1.0.6';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -105,6 +105,7 @@ class Transaction {
     required this.outflow,
     required this.inflow,
     required this.cleared,
+    this.transferLinkId,
   });
 
   final String account;
@@ -117,6 +118,7 @@ class Transaction {
   final double outflow;
   final double inflow;
   final String cleared;
+  final String? transferLinkId;
 
   double get net => inflow - outflow;
 
@@ -130,6 +132,7 @@ class Transaction {
     String? categoryGroup,
     double? outflow,
     double? inflow,
+    String? transferLinkId,
   }) => Transaction(
     account: account,
     date: date ?? this.date,
@@ -141,6 +144,7 @@ class Transaction {
     inflow: inflow ?? this.inflow,
     cleared: cleared ?? this.cleared,
     flag: flag ?? this.flag,
+    transferLinkId: transferLinkId ?? this.transferLinkId,
   );
 }
 
@@ -863,13 +867,27 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     Transaction transaction,
     List<Transaction>? splitParts,
   ) async {
-    final parts = splitParts ?? [transaction];
+    final linkedTransfer =
+        splitParts == null && transaction.transferLinkId != null
+        ? _transactions.where(
+            (item) =>
+                item.transferLinkId == transaction.transferLinkId &&
+                item != transaction,
+          )
+        : const <Transaction>[];
+    final parts = [
+      ...(splitParts ?? [transaction]),
+      ...linkedTransfer,
+    ];
+    final hasLinkedTransfer = linkedTransfer.isNotEmpty;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete transaction?'),
         content: Text(
-          parts.length > 1
+          hasLinkedTransfer
+              ? 'This will also delete the linked transfer transaction.'
+              : parts.length > 1
               ? 'This will delete all ${parts.length} split parts.'
               : 'This transaction will be deleted.',
         ),
@@ -886,7 +904,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() => _transactions.removeWhere(parts.contains));
+    setState(() {
+      _transactions.removeWhere(parts.contains);
+      _selectedTransactions.removeAll(parts);
+    });
   }
 
   Future<void> _editTransaction(Transaction transaction) async {
@@ -1137,6 +1158,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       outflow: source.inflow,
       inflow: source.outflow,
       cleared: source.cleared,
+      transferLinkId: source.transferLinkId,
     );
   }
 
@@ -1165,15 +1187,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           outflow: double.parse(draft.outflow.toStringAsFixed(2)),
           inflow: double.parse(draft.inflow.toStringAsFixed(2)),
         );
-        final counterpart = _transferCounterpart(saved);
-        _transactions.add(saved);
-        if (counterpart != null && (saved.outflow > 0 || saved.inflow > 0)) {
+        final hasTransferAmount = saved.outflow > 0 || saved.inflow > 0;
+        final transferTarget = _transferCounterpart(saved);
+        final linked = transferTarget != null && hasTransferAmount
+            ? saved.copyWith(
+                transferLinkId:
+                    '${DateTime.now().microsecondsSinceEpoch}-${saved.account}',
+              )
+            : saved;
+        final counterpart = _transferCounterpart(linked);
+        _transactions.add(linked);
+        if (counterpart != null && hasTransferAmount) {
           _transactions.add(counterpart);
         }
         _selectedTransactions
           ..clear()
-          ..add(saved);
-        if (counterpart != null && (saved.outflow > 0 || saved.inflow > 0)) {
+          ..add(linked);
+        if (counterpart != null && hasTransferAmount) {
           _selectedTransactions.add(counterpart);
         }
       } else if (_editingSplitDraft != null && _editingSplitOriginal != null) {
