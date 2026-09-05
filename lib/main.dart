@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.2';
+const appVersion = 'v1.0.3';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -459,6 +459,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           .toSet()
           .toList()
         ..sort();
+
+  List<String> get _payees =>
+      _transactions
+          .map((transaction) => transaction.payee.trim())
+          .where((payee) => payee.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort(
+          (first, second) =>
+              first.toLowerCase().compareTo(second.toLowerCase()),
+        );
 
   List<Transaction> get _filteredTransactions {
     final query = _searchController.text.trim().toLowerCase();
@@ -1813,6 +1824,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditCancel: _cancelInlineEdit,
                 highlightEditing: false,
                 availableCategories: _categories,
+                availablePayees: _payees,
                 onEditSplitAmount: _updateInlineSplitAmount,
                 onEditAddSplit: _addInlineSplit,
               ),
@@ -1850,6 +1862,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditCancel: _cancelInlineEdit,
               highlightEditing: false,
               availableCategories: _categories,
+              availablePayees: _payees,
               onEditSplitAmount: _updateInlineSplitAmount,
               onEditAddSplit: _addInlineSplit,
             ),
@@ -2058,6 +2071,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
                 onEditCancel: _cancelInlineEdit,
                 highlightEditing: false,
                 availableCategories: _categories,
+                availablePayees: _payees,
                 onEditSplitAmount: _updateInlineSplitAmount,
                 onEditAddSplit: _addInlineSplit,
               ),
@@ -2102,6 +2116,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               onEditCancel: _cancelInlineEdit,
               highlightEditing: false,
               availableCategories: _categories,
+              availablePayees: _payees,
               onEditSplitAmount: _updateInlineSplitAmount,
               onEditAddSplit: _addInlineSplit,
               showNewTransaction: true,
@@ -3058,6 +3073,7 @@ class _TransactionTable extends StatelessWidget {
     this.showNewTransaction = false,
     this.onNewDatePressed,
     this.onNewCategoryPressed,
+    this.availablePayees = const [],
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
@@ -3086,6 +3102,7 @@ class _TransactionTable extends StatelessWidget {
   final VoidCallback onEditCancel;
   final bool highlightEditing;
   final List<String> availableCategories;
+  final List<String> availablePayees;
   final void Function(List<Transaction>, double) onEditSplitAmount;
   final VoidCallback onEditAddSplit;
   final Set<String> collapsedSplits;
@@ -3280,6 +3297,7 @@ class _TransactionTable extends StatelessWidget {
                 onEditSave: onEditSave,
                 onEditCancel: onEditCancel,
                 availableCategories: availableCategories,
+                availablePayees: availablePayees,
                 onEditSplitAmount: onEditSplitAmount,
                 isNewTransaction:
                     showNewTransaction &&
@@ -3343,6 +3361,7 @@ class _TransactionTable extends StatelessWidget {
                         onEditSave: onEditSave,
                         onEditCancel: onEditCancel,
                         availableCategories: availableCategories,
+                        availablePayees: availablePayees,
                         onEditSplitAmount: onEditSplitAmount,
                         isNewTransaction: false,
                         onNewDatePressed: null,
@@ -3600,6 +3619,7 @@ class _TransactionDisplayRow {
     required VoidCallback onEditCancel,
     required bool highlightEditing,
     required List<String> availableCategories,
+    required List<String> availablePayees,
     required void Function(List<Transaction>, double) onEditSplitAmount,
     required bool isNewTransaction,
     required VoidCallback? onNewDatePressed,
@@ -3699,7 +3719,15 @@ class _TransactionDisplayRow {
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: 7,
-                          vertical: 6,
+                          vertical: 3,
+                        ),
+                        constraints: BoxConstraints(
+                          minHeight: 0,
+                          maxHeight: 28,
+                        ),
+                        suffixIconConstraints: BoxConstraints.tightFor(
+                          width: 24,
+                          height: 24,
                         ),
                         suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
                       ),
@@ -3721,7 +3749,46 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[3],
-            child: editing
+            child: editing && isNewTransaction && !isSplit
+                ? Autocomplete<String>(
+                    initialValue: TextEditingValue(text: transaction.payee),
+                    optionsBuilder: (value) {
+                      final query = value.text.toLowerCase();
+                      return availablePayees.where(
+                        (payee) => payee.toLowerCase().contains(query),
+                      );
+                    },
+                    onSelected: (value) =>
+                        onEditChanged(transaction.copyWith(payee: value)),
+                    fieldViewBuilder: (context, controller, focusNode, _) =>
+                        TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF102A43),
+                          ),
+                          onChanged: (value) =>
+                              onEditChanged(transaction.copyWith(payee: value)),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            constraints: BoxConstraints(
+                              minHeight: 0,
+                              maxHeight: 28,
+                            ),
+                            suffixIconConstraints: BoxConstraints.tightFor(
+                              width: 24,
+                              height: 24,
+                            ),
+                            suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
+                          ),
+                        ),
+                  )
+                : editing
                 ? editor(
                     transaction.payee,
                     (value) =>
@@ -3746,7 +3813,15 @@ class _TransactionDisplayRow {
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: 7,
-                          vertical: 6,
+                          vertical: 3,
+                        ),
+                        constraints: BoxConstraints(
+                          minHeight: 0,
+                          maxHeight: 28,
+                        ),
+                        suffixIconConstraints: BoxConstraints.tightFor(
+                          width: 24,
+                          height: 24,
                         ),
                         suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
                       ),
