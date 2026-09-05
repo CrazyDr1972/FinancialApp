@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.3';
+const appVersion = 'v1.0.4';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -612,7 +612,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               ),
               ListTile(
                 leading: const Icon(Icons.swap_horiz),
-                title: const Text('Payment / Transfer'),
+                title: const Text('Transfer'),
                 onTap: () => Navigator.pop(dialogContext, 'transfer'),
               ),
               ListTile(
@@ -641,7 +641,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
       final target = await showDialog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Payment / Transfer'),
+          title: const Text('Transfer'),
           content: SizedBox(
             width: 360,
             height: 360,
