@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.1';
+const appVersion = 'v1.0.2';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -284,6 +284,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   List<Transaction>? _editingSplitDraft;
   List<Transaction>? _editingSplitOriginal;
   String? _editingSplitKey;
+  bool _isCreatingTransaction = false;
   final Set<String> _collapsedSplits = {};
   int _transactionSortColumn = 0;
   bool _transactionSortAscending = false;
@@ -538,6 +539,150 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
   }
 
   void _clearSelection() => setState(_selectedTransactions.clear);
+
+  void _beginAddTransaction() {
+    final account = _selectedAccount;
+    if (account == null || _editingDraft != null) return;
+    final draft = Transaction(
+      account: account,
+      flag: '',
+      date: DateTime.now(),
+      payee: '',
+      category: '',
+      categoryGroup: '',
+      memo: '',
+      outflow: 0,
+      inflow: 0,
+      cleared: 'Uncleared',
+    );
+    setState(() {
+      _isCreatingTransaction = true;
+      _editingOriginal = draft;
+      _editingDraft = draft;
+      _editingSplitDraft = null;
+      _editingSplitOriginal = null;
+      _editingSplitKey = null;
+    });
+  }
+
+  void _beginNewSplit() {
+    final draft = _editingDraft;
+    if (draft == null || !_isCreatingTransaction) return;
+    final parts = [
+      draft.copyWith(category: '', memo: 'Split (1/2)', outflow: 0, inflow: 0),
+      draft.copyWith(category: '', memo: 'Split (2/2)', outflow: 0, inflow: 0),
+    ];
+    setState(() {
+      _editingDraft = draft.copyWith(
+        category: 'Split (Multiple Categories)...',
+        categoryGroup: '',
+      );
+      _editingSplitOriginal = parts;
+      _editingSplitDraft = parts;
+      _editingSplitKey = '__new__';
+    });
+  }
+
+  Future<void> _chooseNewCategory() async {
+    if (!_isCreatingTransaction || _editingDraft == null) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Επιλογή κατηγορίας'),
+        content: SizedBox(
+          width: 430,
+          height: 420,
+          child: ListView(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text('Inflow: Ready to Assign'),
+                onTap: () => Navigator.pop(dialogContext, 'inflow'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: const Text('Payment / Transfer'),
+                onTap: () => Navigator.pop(dialogContext, 'transfer'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.call_split),
+                title: const Text('Split'),
+                onTap: () => Navigator.pop(dialogContext, 'split'),
+              ),
+              const Divider(),
+              ..._categories.map(
+                (category) => ListTile(
+                  title: Text(category),
+                  onTap: () => Navigator.pop(dialogContext, category),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'split') {
+      _beginNewSplit();
+      return;
+    }
+    if (choice == 'transfer') {
+      final target = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Payment / Transfer'),
+          content: SizedBox(
+            width: 360,
+            height: 360,
+            child: ListView(
+              children: _accounts
+                  .where((account) => account != _selectedAccount)
+                  .map(
+                    (account) => ListTile(
+                      title: Text('To/From $account'),
+                      onTap: () => Navigator.pop(dialogContext, account),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ),
+      );
+      if (target == null || !mounted) return;
+      _updateInlineEdit(
+        _editingDraft!.copyWith(
+          payee: 'Transfer: $target',
+          category: 'Category not needed',
+          categoryGroup: '',
+        ),
+      );
+      return;
+    }
+    final separator = choice.indexOf(':');
+    _updateInlineEdit(
+      _editingDraft!.copyWith(
+        categoryGroup: separator < 0
+            ? ''
+            : choice.substring(0, separator).trim(),
+        category: separator < 0
+            ? choice
+            : choice.substring(separator + 1).trim(),
+      ),
+    );
+  }
+
+  Future<void> _pickNewDate() async {
+    final draft = _editingDraft;
+    if (!_isCreatingTransaction || draft == null) return;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: draft.date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    _updateInlineEdit(draft.copyWith(date: picked));
+  }
 
   void _setSplitSelected(List<Transaction> transactions, bool selected) {
     setState(() {
@@ -949,6 +1094,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
 
   void _cancelInlineEdit() {
     setState(() {
+      _isCreatingTransaction = false;
       _editingOriginal = null;
       _editingDraft = null;
       _editingSplitDraft = null;
@@ -962,7 +1108,31 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     final draft = _editingDraft;
     if (original == null || draft == null) return;
     setState(() {
-      if (_editingSplitDraft != null && _editingSplitOriginal != null) {
+      if (_isCreatingTransaction &&
+          _editingSplitDraft != null &&
+          _editingSplitOriginal != null) {
+        final savedParts = _editingSplitDraft!
+            .map(
+              (part) => part.copyWith(
+                outflow: double.parse(part.outflow.toStringAsFixed(2)),
+                inflow: double.parse(part.inflow.toStringAsFixed(2)),
+              ),
+            )
+            .toList();
+        _transactions.addAll(savedParts);
+        _selectedTransactions
+          ..clear()
+          ..addAll(savedParts);
+      } else if (_isCreatingTransaction) {
+        final saved = draft.copyWith(
+          outflow: double.parse(draft.outflow.toStringAsFixed(2)),
+          inflow: double.parse(draft.inflow.toStringAsFixed(2)),
+        );
+        _transactions.add(saved);
+        _selectedTransactions
+          ..clear()
+          ..add(saved);
+      } else if (_editingSplitDraft != null && _editingSplitOriginal != null) {
         _transactions.removeWhere(_editingSplitOriginal!.contains);
         final savedParts = _editingSplitDraft!
             .map(
@@ -988,6 +1158,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             ..add(draft);
         }
       }
+      _isCreatingTransaction = false;
       _editingOriginal = null;
       _editingDraft = null;
       _editingSplitDraft = null;
@@ -1793,7 +1964,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             FilledButton.icon(
-              onPressed: () {},
+              onPressed: _beginAddTransaction,
               icon: const Icon(Icons.add),
               label: const Text('Προσθήκη συναλλαγής'),
             ),
@@ -1893,7 +2064,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
             ),
           const SizedBox(height: 12),
         ],
-        if (current.isEmpty)
+        if (current.isEmpty && !_isCreatingTransaction)
           const Card(
             child: Padding(
               padding: EdgeInsets.all(30),
@@ -1933,6 +2104,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
               availableCategories: _categories,
               onEditSplitAmount: _updateInlineSplitAmount,
               onEditAddSplit: _addInlineSplit,
+              showNewTransaction: true,
+              onNewDatePressed: _pickNewDate,
+              onNewCategoryPressed: _chooseNewCategory,
             ),
           ),
       ],
@@ -2881,6 +3055,9 @@ class _TransactionTable extends StatelessWidget {
     required this.collapsedSplits,
     required this.onSplitToggled,
     required this.scheduled,
+    this.showNewTransaction = false,
+    this.onNewDatePressed,
+    this.onNewCategoryPressed,
   });
   final List<Transaction> transactions;
   final NumberFormat currency;
@@ -2914,6 +3091,9 @@ class _TransactionTable extends StatelessWidget {
   final Set<String> collapsedSplits;
   final void Function(String key, bool collapsed) onSplitToggled;
   final bool scheduled;
+  final bool showNewTransaction;
+  final VoidCallback? onNewDatePressed;
+  final VoidCallback? onNewCategoryPressed;
 
   List<_TransactionDisplayRow> _displayRows() {
     final rows = <_TransactionDisplayRow>[];
@@ -2923,6 +3103,25 @@ class _TransactionTable extends StatelessWidget {
     final splitFirstOrder = <String, int>{};
     final splitPattern = RegExp(r'^Split \(\d+/\d+\)\s*(.*)$');
     var order = 0;
+    if (showNewTransaction &&
+        editingTransaction != null &&
+        editingSplitKey == '__new__' &&
+        editingSplitDraft != null) {
+      rows.add(
+        _TransactionDisplayRow(
+          editingTransaction!,
+          children: editingSplitDraft,
+          splitKey: '__new__',
+        ),
+      );
+      rowOrders.add(-1);
+    } else if (showNewTransaction &&
+        editingTransaction != null &&
+        editingSplitKey == null &&
+        !transactions.contains(editingTransaction)) {
+      rows.add(_TransactionDisplayRow(editingTransaction!));
+      rowOrders.add(-1);
+    }
     for (final transaction in transactions.take(250)) {
       final match = splitPattern.firstMatch(transaction.memo);
       if (match == null) {
@@ -3082,6 +3281,12 @@ class _TransactionTable extends StatelessWidget {
                 onEditCancel: onEditCancel,
                 availableCategories: availableCategories,
                 onEditSplitAmount: onEditSplitAmount,
+                isNewTransaction:
+                    showNewTransaction &&
+                    editingTransaction == displayRow.transaction &&
+                    !transactions.contains(displayRow.transaction),
+                onNewDatePressed: onNewDatePressed,
+                onNewCategoryPressed: onNewCategoryPressed,
                 selected: displayRow.isSplit
                     ? displayRow.children!.every(selectedTransactions.contains)
                     : selectedTransactions.contains(displayRow.transaction),
@@ -3096,7 +3301,22 @@ class _TransactionTable extends StatelessWidget {
                       )
                     : null,
               );
-              if (!displayRow.isSplit || displayRow.collapsed) return [parent];
+              final isNewTransaction =
+                  showNewTransaction &&
+                  editingTransaction == displayRow.transaction &&
+                  !transactions.contains(displayRow.transaction);
+              if (!displayRow.isSplit || displayRow.collapsed) {
+                if (isNewTransaction) {
+                  return [
+                    parent,
+                    ..._newEditFooterRows(
+                      onSave: onEditSave,
+                      onCancel: onEditCancel,
+                    ),
+                  ];
+                }
+                return [parent];
+              }
               final childRows = [
                 parent,
                 ...displayRow.children!.map(
@@ -3124,6 +3344,9 @@ class _TransactionTable extends StatelessWidget {
                         onEditCancel: onEditCancel,
                         availableCategories: availableCategories,
                         onEditSplitAmount: onEditSplitAmount,
+                        isNewTransaction: false,
+                        onNewDatePressed: null,
+                        onNewCategoryPressed: null,
                         selected: selectedTransactions.contains(child),
                         onSelected: (selected) =>
                             onTransactionSelected(child, selected),
@@ -3251,6 +3474,36 @@ class _TransactionTable extends StatelessWidget {
     return [row(cells: amountsRow), row(cells: actionsRow)];
   }
 
+  List<DataRow> _newEditFooterRows({
+    required VoidCallback onSave,
+    required VoidCallback onCancel,
+  }) {
+    final emptyCells = List<DataCell>.generate(
+      9,
+      (_) => const DataCell(SizedBox.shrink()),
+    );
+    final cells = [...emptyCells];
+    cells[6] = DataCell(
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+            const SizedBox(width: 6),
+            FilledButton(onPressed: onSave, child: const Text('Save')),
+          ],
+        ),
+      ),
+    );
+    return [
+      DataRow(
+        color: const MaterialStatePropertyAll(Color(0xFFDAD9FF)),
+        cells: cells,
+      ),
+    ];
+  }
+
   Widget _columnHeader(int index, String label) => MouseRegion(
     cursor: SystemMouseCursors.resizeColumn,
     child: GestureDetector(
@@ -3348,6 +3601,9 @@ class _TransactionDisplayRow {
     required bool highlightEditing,
     required List<String> availableCategories,
     required void Function(List<Transaction>, double) onEditSplitAmount,
+    required bool isNewTransaction,
+    required VoidCallback? onNewDatePressed,
+    required VoidCallback? onNewCategoryPressed,
     required bool selected,
     required ValueChanged<bool> onSelected,
     required bool enabled,
@@ -3435,7 +3691,22 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[2],
-            child: editing && !isChild
+            child: editing && !isChild && isNewTransaction
+                ? InkWell(
+                    onTap: onNewDatePressed,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 6,
+                        ),
+                        suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
+                      ),
+                      child: Text(dateFormat.format(transaction.date)),
+                    ),
+                  )
+                : editing && !isChild
                 ? editor(dateFormat.format(transaction.date), (value) {
                     final parsed = DateTime.tryParse(
                       value.split('/').reversed.join('-'),
@@ -3467,7 +3738,25 @@ class _TransactionDisplayRow {
         DataCell(
           SizedBox(
             width: columnWidths[4],
-            child: editing
+            child: editing && isNewTransaction && !isSplit
+                ? InkWell(
+                    onTap: onNewCategoryPressed,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 6,
+                        ),
+                        suffixIcon: Icon(Icons.arrow_drop_down, size: 18),
+                      ),
+                      child: Text(
+                        category.isEmpty ? 'category' : category,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                : editing
                 ? Autocomplete<String>(
                     initialValue: TextEditingValue(text: category),
                     optionsBuilder: (value) {
