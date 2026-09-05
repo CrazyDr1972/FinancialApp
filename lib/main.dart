@@ -15,7 +15,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-const appVersion = 'v1.0.4';
+const appVersion = 'v1.0.5';
 const seedExportDate = '2026-08-27 14:24';
 
 Future<void> main() async {
@@ -1114,6 +1114,32 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
     });
   }
 
+  Transaction? _transferCounterpart(Transaction source) {
+    final match = RegExp(
+      r'^Transfer:\s*(.+)$',
+      caseSensitive: false,
+    ).firstMatch(source.payee.trim());
+    if (match == null) return null;
+    final target = match.group(1)!.trim();
+    if (target.isEmpty ||
+        target == source.account ||
+        !_accounts.contains(target)) {
+      return null;
+    }
+    return Transaction(
+      account: target,
+      flag: '',
+      date: source.date,
+      payee: 'Transfer: ${source.account}',
+      category: 'Category not needed',
+      categoryGroup: '',
+      memo: source.memo,
+      outflow: source.inflow,
+      inflow: source.outflow,
+      cleared: source.cleared,
+    );
+  }
+
   void _saveInlineEdit() {
     final original = _editingOriginal;
     final draft = _editingDraft;
@@ -1139,10 +1165,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> with WindowListener {
           outflow: double.parse(draft.outflow.toStringAsFixed(2)),
           inflow: double.parse(draft.inflow.toStringAsFixed(2)),
         );
+        final counterpart = _transferCounterpart(saved);
         _transactions.add(saved);
+        if (counterpart != null && (saved.outflow > 0 || saved.inflow > 0)) {
+          _transactions.add(counterpart);
+        }
         _selectedTransactions
           ..clear()
           ..add(saved);
+        if (counterpart != null && (saved.outflow > 0 || saved.inflow > 0)) {
+          _selectedTransactions.add(counterpart);
+        }
       } else if (_editingSplitDraft != null && _editingSplitOriginal != null) {
         _transactions.removeWhere(_editingSplitOriginal!.contains);
         final savedParts = _editingSplitDraft!
@@ -3751,6 +3784,7 @@ class _TransactionDisplayRow {
             width: columnWidths[3],
             child: editing && isNewTransaction && !isSplit
                 ? Autocomplete<String>(
+                    key: ValueKey('new-payee-${transaction.payee}'),
                     initialValue: TextEditingValue(text: transaction.payee),
                     optionsBuilder: (value) {
                       final query = value.text.toLowerCase();
